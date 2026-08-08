@@ -107,7 +107,7 @@ internal sealed class GlowBandWindow : Form
         try
         {
             using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
-            Paint(bitmap, from, to);
+            DrawGlow(bitmap, from, to);
 
             // Нулевой фон здесь принципиален: только так GetHbitmap сохраняет
             // попиксельную прозрачность, а не смешивает её с цветом подложки.
@@ -141,7 +141,7 @@ internal sealed class GlowBandWindow : Form
     /// Одна лишь узкая линия выглядит как подсветка монитора, один лишь ореол —
     /// как мутное пятно; вместе они дают ту самую каёмку.
     /// </summary>
-    private void Paint(Bitmap bitmap, Color from, Color to)
+    private void DrawGlow(Bitmap bitmap, Color from, Color to)
     {
         var width = bitmap.Width;
         var height = bitmap.Height;

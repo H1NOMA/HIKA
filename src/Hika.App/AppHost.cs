@@ -54,7 +54,10 @@ public sealed class AppHost : IDisposable
     private float[]? _pendingUtterance;
 
     private DateTime _armedUntil = DateTime.MinValue;
-    private Timer? _reindexTimer;
+
+    // Полное имя намеренно: в проекте WinForms короткое «Timer» неоднозначно,
+    // а нам нужен именно фоновый таймер, а не оконный.
+    private System.Threading.Timer? _reindexTimer;
 
     // Не volatile: поле меняется через Interlocked, а передача volatile-поля
     // по ссылке даёт предупреждение и теряет ту самую гарантию, ради которой
@@ -125,7 +128,7 @@ public sealed class AppHost : IDisposable
                 _catalog.RefreshInstalled();
 
                 var period = TimeSpan.FromMinutes(config.Behavior.ReindexMinutes);
-                _reindexTimer = new Timer(_ => _catalog.RefreshInstalled(), null, period, period);
+                _reindexTimer = new System.Threading.Timer(_ => _catalog.RefreshInstalled(), null, period, period);
             });
         }
 
