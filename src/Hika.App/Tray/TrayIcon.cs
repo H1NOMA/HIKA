@@ -1,23 +1,23 @@
-using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using Hika.Config;
 using Hika.Diagnostics;
 using Hika.Startup;
+using Hika.Ui;
 
 namespace Hika.Tray;
 
 /// <summary>
-/// Значок в трее — единственная видимая часть HIKA.
+/// Значок в трее — единственная постоянно видимая часть HIKA.
 ///
-/// Он здесь не для красоты: программа круглые сутки слушает микрофон, и у человека
-/// должен быть способ увидеть, что она делает, и выключить её одним движением.
-/// Ассистент с постоянно открытым микрофоном и без видимого выключателя — плохая
-/// программа независимо от того, насколько хорошо она распознаёт речь.
+/// Он здесь не для красоты: программа круглые сутки слушает микрофон,
+/// и у человека должен быть способ увидеть, что она делает, и выключить
+/// её одним движением. Ассистент с открытым микрофоном и без видимого
+/// выключателя — плохая программа независимо от того, насколько хорошо
+/// он распознаёт речь.
 ///
-/// Значок рисуется кодом, а не берётся из файла: так он меняет цвет вместе
-/// с состоянием и не тянет за собой двоичных ресурсов.
+/// Значок рисуется кодом тем же способом, что и логотип в окне настроек,
+/// поэтому они не могут разойтись: сменил личность — сменилось и то и другое.
 /// </summary>
 public sealed class TrayIcon : IDisposable
 {
@@ -27,52 +27,83 @@ public sealed class TrayIcon : IDisposable
     private readonly ToolStripMenuItem _muteItem;
     private readonly ToolStripMenuItem _autostartItem;
 
-    private readonly Dictionary<HostState, Icon> _icons = new();
-    private HostState _state = HostState.Starting;
+    private readonly Dictionary<(string Persona, bool Muted), Icon> _icons = new();
+
+    private string _personaId = "hika";
+    private bool _muted;
 
     public event Action? MuteToggleRequested;
     public event Action? ExitRequested;
     public event Action? DiagnosticsRequested;
     public event Action? LiveListenRequested;
+    public event Action? SettingsRequested;
 
-    public TrayIcon()
+    public TrayIcon(string personaId)
     {
+        _personaId = Personas.ById(personaId).Id;
+
         _statusItem = new ToolStripMenuItem("Запускается…") { Enabled = false };
+
+        var settingsItem = new ToolStripMenuItem("Настройки", null, (_, _) => SettingsRequested?.Invoke())
+        {
+            Font = new Font(SystemFonts.MenuFont ?? Control.DefaultFont, FontStyle.Bold),
+        };
+
         _muteItem = new ToolStripMenuItem("Выключить микрофон", null, (_, _) => MuteToggleRequested?.Invoke());
+
         _autostartItem = new ToolStripMenuItem("Запускать вместе с Windows", null, OnAutostartClicked)
         {
             CheckOnClick = true,
             Checked = AutostartManager.IsEnabled(),
         };
 
-        _menu = new ContextMenuStrip();
+        _menu = new ContextMenuStrip
+        {
+            Renderer = new DarkMenuRenderer(),
+            BackColor = Theme.Card,
+            ForeColor = Theme.Text,
+        };
+
         _menu.Items.Add(_statusItem);
         _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(settingsItem);
         _menu.Items.Add(_muteItem);
         _menu.Items.Add(_autostartItem);
         _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add(new ToolStripMenuItem("Настройки (config.json)", null, (_, _) => OpenConfig()));
-        _menu.Items.Add(new ToolStripMenuItem("Журнал работы", null, (_, _) => OpenLogs()));
-        _menu.Items.Add(new ToolStripMenuItem("Что я слышу (живая проверка)", null, (_, _) => LiveListenRequested?.Invoke()));
-        _menu.Items.Add(new ToolStripMenuItem("Проверка системы", null, (_, _) => DiagnosticsRequested?.Invoke()));
+        _menu.Items.Add(new ToolStripMenuItem("Что я слышу", null, (_, _) => LiveListenRequested?.Invoke()));
+        _menu.Items.Add(new ToolStripMenuItem("Диагностика", null, (_, _) => DiagnosticsRequested?.Invoke()));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Выход", null, (_, _) => ExitRequested?.Invoke()));
 
         _icon = new NotifyIcon
         {
-            Icon = IconFor(HostState.Starting),
-            Text = "HIKA — запускается",
+            Icon = IconFor(_personaId, muted: false),
+            Text = "HIKA",
             Visible = true,
             ContextMenuStrip = _menu,
         };
 
-        // Двойной щелчок — быстрый выключатель микрофона.
-        _icon.DoubleClick += (_, _) => MuteToggleRequested?.Invoke();
+        // Обычный щелчок открывает настройки — это самое частое, зачем к значку
+        // вообще тянутся. Микрофон выключается двойным щелчком и через меню.
+        _icon.MouseUp += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left) SettingsRequested?.Invoke();
+            else if (e.Button == MouseButtons.Middle) MuteToggleRequested?.Invoke();
+        };
+    }
+
+    public void SetPersona(string personaId)
+    {
+        var id = Personas.ById(personaId).Id;
+        if (id == _personaId) return;
+
+        _personaId = id;
+        RefreshIcon();
     }
 
     public void UpdateState(HostState state, bool muted)
     {
-        _state = state;
+        _muted = muted;
 
         var status = muted
             ? "Микрофон выключен"
@@ -91,16 +122,22 @@ public sealed class TrayIcon : IDisposable
         {
             _statusItem.Text = status;
             _muteItem.Text = muted ? "Включить микрофон" : "Выключить микрофон";
-            _icon.Icon = muted ? IconFor(HostState.Failed) : IconFor(state);
+            RefreshIcon();
 
             // Подпись значка в Windows ограничена 63 символами.
-            var tooltip = $"HIKA — {status}";
+            var tooltip = $"HIKA · {Personas.ById(_personaId).Name} — {status}";
             _icon.Text = tooltip.Length > 60 ? tooltip[..60] : tooltip;
         }
         catch (Exception ex)
         {
             Log.Debug($"значок в трее не обновился: {ex.Message}", "tray");
         }
+    }
+
+    private void RefreshIcon()
+    {
+        try { _icon.Icon = IconFor(_personaId, _muted); }
+        catch (Exception ex) { Log.Debug($"значок не перерисовался: {ex.Message}", "tray"); }
     }
 
     public void ShowMessage(string title, string text, ToolTipIcon kind = ToolTipIcon.Info)
@@ -129,78 +166,16 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
-    private static void OpenConfig()
+    private Icon IconFor(string personaId, bool muted)
     {
-        try
-        {
-            AppPaths.EnsureCreated();
+        var key = (personaId, muted);
+        if (_icons.TryGetValue(key, out var cached)) return cached;
 
-            // Открываем папку, а не сам файл: у .json может не быть программы по умолчанию,
-            // и человек получил бы диалог «чем открыть» вместо настроек.
-            Process.Start(new ProcessStartInfo(AppPaths.Root) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            Log.Error("не удалось открыть папку настроек", ex, "tray");
-        }
-    }
+        var accent = Theme.AccentOf(Personas.ById(personaId));
+        var icon = RingLogo.CreateIcon(accent, muted);
 
-    private static void OpenLogs()
-    {
-        try
-        {
-            AppPaths.EnsureCreated();
-            Process.Start(new ProcessStartInfo(AppPaths.LogDirectory) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            Log.Error("не удалось открыть журнал", ex, "tray");
-        }
-    }
-
-    /// <summary>Рисует значок: кольцо, цвет которого говорит о состоянии.</summary>
-    private Icon IconFor(HostState state)
-    {
-        if (_icons.TryGetValue(state, out var cached)) return cached;
-
-        var (outer, inner) = state switch
-        {
-            HostState.Idle => (Color.FromArgb(90, 150, 210), Color.FromArgb(160, 205, 245)),
-            HostState.Sensing => (Color.FromArgb(70, 190, 205), Color.FromArgb(150, 235, 240)),
-            HostState.Armed => (Color.FromArgb(90, 175, 255), Color.FromArgb(190, 225, 255)),
-            HostState.Working => (Color.FromArgb(140, 120, 245), Color.FromArgb(200, 190, 255)),
-            HostState.Failed => (Color.FromArgb(150, 90, 90), Color.FromArgb(210, 140, 140)),
-            _ => (Color.FromArgb(120, 120, 130), Color.FromArgb(180, 180, 190)),
-        };
-
-        // 32 пикселя — размер, из которого Windows корректно получает и мелкий вариант.
-        using var bitmap = new Bitmap(32, 32);
-        using (var g = Graphics.FromImage(bitmap))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-
-            using var ringPen = new Pen(outer, 3.2f);
-            g.DrawEllipse(ringPen, 4, 4, 24, 24);
-
-            using var coreBrush = new SolidBrush(inner);
-            g.FillEllipse(coreBrush, 12, 12, 8, 8);
-        }
-
-        var handle = bitmap.GetHicon();
-        try
-        {
-            // Копируем: исходный дескриптор нужно освободить сразу, иначе
-            // на каждой смене состояния будет утекать по значку.
-            using var temporary = Icon.FromHandle(handle);
-            var icon = (Icon)temporary.Clone();
-            _icons[state] = icon;
-            return icon;
-        }
-        finally
-        {
-            NativeMethods.DestroyIcon(handle);
-        }
+        _icons[key] = icon;
+        return icon;
     }
 
     public void Dispose()
@@ -215,12 +190,5 @@ public sealed class TrayIcon : IDisposable
             _icons.Clear();
         }
         catch { /* при выходе неважно */ }
-    }
-
-    private static class NativeMethods
-    {
-        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        internal static extern bool DestroyIcon(IntPtr handle);
     }
 }

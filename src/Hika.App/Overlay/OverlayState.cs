@@ -37,9 +37,13 @@ public sealed class GlowPalette
     public Color Success { get; }
     public Color Failed { get; }
 
-    public GlowPalette(OverlayConfig config)
+    public GlowPalette(OverlayConfig config, string? personaId = null)
     {
-        var colors = config.Colors ?? new List<string>();
+        // Цвета личности по умолчанию: свечение должно совпадать со значком
+        // возле часов, иначе связь между ними приходится держать в голове.
+        var colors = config.UsePersonaColors
+            ? Personas.ById(personaId).GlowColors.ToList()
+            : config.Colors ?? new List<string>();
 
         Edges = new Color[4];
         for (int i = 0; i < 4; i++)

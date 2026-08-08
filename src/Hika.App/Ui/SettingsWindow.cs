@@ -1,0 +1,865 @@
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+using Hika.Audio;
+using Hika.Config;
+using Hika.Diagnostics;
+using Hika.Interop;
+using Hika.Startup;
+
+namespace Hika.Ui;
+
+/// <summary>
+/// Окно настроек — всё, чем можно управлять, в одном месте.
+///
+/// Существует потому, что файл config.json удобен мне и совершенно неудобен
+/// человеку: чтобы поправить чувствительность, не должно требоваться знание
+/// имени поля и того, в какой из пяти разделов оно вложено.
+///
+/// У каждой настройки есть пояснение обычными словами. Значение «порог 0.45»
+/// само по себе не говорит ничего, а отправлять за смыслом в документацию —
+/// надёжный способ гарантировать, что настройку не тронут никогда.
+/// </summary>
+public sealed class SettingsWindow : Form
+{
+    private readonly ConfigStore _store;
+    private readonly Func<double> _levelSource;
+    private readonly Action<HikaConfig> _onApply;
+    private readonly Action _onLiveListen;
+    private readonly Action _onDiagnostics;
+    private readonly Func<(string Status, string Microphone, string Recognizer, int CatalogSize)> _statusSource;
+
+    private HikaConfig _config;
+
+    private readonly NavList _nav = new();
+    private readonly Panel _content = new();
+    private readonly Dictionary<string, Control> _pages = new();
+    private readonly Label _notice = new();
+
+    // ---- Элементы, значения которых нужно читать при сохранении ----
+    private readonly List<PersonaCard> _personaCards = new();
+    private string _personaId = "hika";
+
+    private ToggleSwitch _respondToBoth = null!;
+    private SliderField _tolerance = null!;
+    private ToggleSwitch _allowAnywhere = null!;
+    private TextField _extraVariants = null!;
+
+    private DropDownField _device = null!;
+    private SliderField _gain = null!;
+    private SliderField _vadThreshold = null!;
+    private SliderField _silenceMs = null!;
+    private SliderField _minSpeechMs = null!;
+
+    private DropDownField _model = null!;
+    private DropDownField _language = null!;
+    private SliderField _threads = null!;
+    private ToggleSwitch _earlyProbe = null!;
+    private SliderField _probeAfterMs = null!;
+
+    private ToggleSwitch _overlayEnabled = null!;
+    private DropDownField _monitors = null!;
+    private SliderField _thickness = null!;
+    private SliderField _maxOpacity = null!;
+    private SliderField _sensingOpacity = null!;
+    private SliderField _reactivity = null!;
+    private SliderField _fps = null!;
+    private ToggleSwitch _personaColors = null!;
+    private ToggleSwitch _excludeCapture = null!;
+
+    private SliderField _armedSeconds = null!;
+    private ToggleSwitch _searchFallback = null!;
+    private SliderField _matchThreshold = null!;
+    private ToggleSwitch _indexApps = null!;
+    private ToggleSwitch _logTranscripts = null!;
+    private ToggleSwitch _autostart = null!;
+    private ToggleSwitch _startMuted = null!;
+    private DropDownField _logLevel = null!;
+
+    private string _initialModel = "";
+    private string _initialDevice = "";
+
+    public SettingsWindow(
+        ConfigStore store,
+        Func<double> levelSource,
+        Func<(string, string, string, int)> statusSource,
+        Action<HikaConfig> onApply,
+        Action onLiveListen,
+        Action onDiagnostics)
+    {
+        _store = store;
+        _levelSource = levelSource;
+        _statusSource = statusSource;
+        _onApply = onApply;
+        _onLiveListen = onLiveListen;
+        _onDiagnostics = onDiagnostics;
+
+        _config = store.Current;
+        _personaId = Personas.ById(_config.Persona).Id;
+        Theme.ApplyPersona(_personaId);
+
+        BuildWindow();
+        BuildPages();
+        LoadFromConfig();
+    }
+
+    // ---- Каркас окна ------------------------------------------------------
+
+    private void BuildWindow()
+    {
+        Text = "HIKA — настройки";
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.CenterScreen;
+        ClientSize = new Size(940, 660);
+        MinimumSize = new Size(820, 560);
+        BackColor = Theme.Background;
+        ForeColor = Theme.Text;
+        Font = Theme.Body;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        DoubleBuffered = true;
+        KeyPreview = true;
+
+        ShowInTaskbar = true;
+        Icon = RingLogo.CreateIcon(Theme.Accent, muted: false);
+
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape) HideWindow();
+            if (e.Control && e.KeyCode == Keys.S) { Apply(); e.Handled = true; }
+        };
+
+        var header = new HeaderBar(this, _statusSource) { Dock = DockStyle.Top, Height = 74 };
+        var footer = BuildFooter();
+
+        _nav.Dock = DockStyle.Left;
+        _nav.Width = 196;
+        _nav.SetItems(new[]
+        {
+            ("persona", "Личность"),
+            ("mic", "Микрофон"),
+            ("speech", "Распознавание"),
+            ("glow", "Свечение"),
+            ("behavior", "Поведение"),
+            ("about", "О программе"),
+        });
+
+        _nav.SelectionChanged += (_, _) => ShowPage(_nav.SelectedKey);
+
+        _content.Dock = DockStyle.Fill;
+        _content.BackColor = Theme.Panel;
+
+        // Порядок добавления задаёт, кто у кого отъедает место:
+        // сначала нижняя и верхняя полосы, потом боковая, остаток — содержимому.
+        Controls.Add(_content);
+        Controls.Add(_nav);
+        Controls.Add(footer);
+        Controls.Add(header);
+    }
+
+    private Control BuildFooter()
+    {
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 62, BackColor = Theme.Background };
+
+        var listen = new FlatButton("Что я слышу") { Width = 150 };
+        listen.Click += (_, _) => _onLiveListen();
+
+        var diagnose = new FlatButton("Диагностика") { Width = 130 };
+        diagnose.Click += (_, _) => _onDiagnostics();
+
+        var apply = new FlatButton("Применить", primary: true) { Width = 130 };
+        apply.Click += (_, _) => Apply();
+
+        _notice.AutoSize = false;
+        _notice.ForeColor = Theme.TextFaint;
+        _notice.Font = Theme.Small;
+        _notice.TextAlign = ContentAlignment.MiddleRight;
+        _notice.BackColor = Color.Transparent;
+
+        footer.Controls.AddRange(new Control[] { listen, diagnose, apply, _notice });
+
+        footer.Resize += (_, _) =>
+        {
+            listen.Location = new Point(24, (footer.Height - listen.Height) / 2);
+            diagnose.Location = new Point(listen.Right + 10, listen.Top);
+            apply.Location = new Point(footer.Width - apply.Width - 24, listen.Top);
+            _notice.SetBounds(diagnose.Right + 16, 0, Math.Max(60, apply.Left - diagnose.Right - 32), footer.Height);
+        };
+
+        footer.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Theme.Border);
+            e.Graphics.DrawLine(pen, 0, 0, footer.Width, 0);
+        };
+
+        return footer;
+    }
+
+    // ---- Страницы ---------------------------------------------------------
+
+    private static Panel Stack(params Control[] children)
+    {
+        var panel = new Panel
+        {
+            AutoScroll = true,
+            BackColor = Theme.Panel,
+            Padding = new Padding(30, 4, 30, 28),
+            Dock = DockStyle.Fill,
+            Visible = false,
+        };
+
+        // Dock.Top укладывает сверху вниз в порядке, обратном добавлению.
+        for (int i = children.Length - 1; i >= 0; i--)
+        {
+            children[i].Dock = DockStyle.Top;
+            panel.Controls.Add(children[i]);
+        }
+
+        return panel;
+    }
+
+    private void BuildPages()
+    {
+        _pages["persona"] = BuildPersonaPage();
+        _pages["mic"] = BuildMicrophonePage();
+        _pages["speech"] = BuildSpeechPage();
+        _pages["glow"] = BuildGlowPage();
+        _pages["behavior"] = BuildBehaviorPage();
+        _pages["about"] = BuildAboutPage();
+
+        foreach (var page in _pages.Values) _content.Controls.Add(page);
+
+        ShowPage("persona");
+    }
+
+    private void ShowPage(string key)
+    {
+        foreach (var (name, page) in _pages) page.Visible = name == key;
+    }
+
+    private Control BuildPersonaPage()
+    {
+        var chooser = new Panel { Height = 156, BackColor = Theme.Panel };
+
+        foreach (var persona in Personas.All)
+        {
+            var card = new PersonaCard(persona) { Location = new Point(_personaCards.Count * 204, 8) };
+            card.Picked += (_, _) => SelectPersona(persona.Id);
+
+            _personaCards.Add(card);
+            chooser.Controls.Add(card);
+        }
+
+        _respondToBoth = new ToggleSwitch();
+        _tolerance = new SliderField { Minimum = 0.15, Maximum = 0.7, Step = 0.01, Format = v => v.ToString("0.00") };
+        _allowAnywhere = new ToggleSwitch();
+        _extraVariants = new TextField { Placeholder = "обои, а ви, хикко" };
+
+        return Stack(
+            new SectionTitle("Личность", "Имя, на которое ассистент отзывается, и цвет, которым он живёт. Цвет один и тот же в значке возле часов и в свечении по краям экрана."),
+            chooser,
+            new SettingRow("Отзываться и на второе имя",
+                "Цвет и подписи останутся от выбранной личности — меняется только то, на что она откликается.",
+                _respondToBoth, 46),
+            new SectionTitle("Чувствительность к имени"),
+            new SettingRow("Насколько прощать искажения",
+                "Больше — откликается охотнее, но и на похожие слова тоже. Если распознаватель коверкает имя, надёжнее дописать вариант ниже, чем поднимать это значение.",
+                _tolerance, 240),
+            new SettingRow("Свои варианты произношения",
+                "Через запятую. Впишите сюда то, как имя реально расслышала модель — это надёжнее любой подстройки порогов. Посмотреть можно кнопкой «Что я слышу».",
+                _extraVariants),
+            new SettingRow("Искать имя в любом месте фразы",
+                "Обычно имя ждут в начале. Включённое заметно повышает число ложных срабатываний.",
+                _allowAnywhere, 46));
+    }
+
+    private Control BuildMicrophonePage()
+    {
+        _device = new DropDownField();
+        _gain = new SliderField { Minimum = 0.5, Maximum = 6, Step = 0.1, Format = v => v.ToString("0.0") + "x" };
+        _vadThreshold = new SliderField { Minimum = 0.15, Maximum = 0.9, Step = 0.01, Format = v => v.ToString("0.00") };
+        _silenceMs = new SliderField { Minimum = 200, Maximum = 2000, Step = 50, Format = v => $"{v:0} мс" };
+        _minSpeechMs = new SliderField { Minimum = 100, Maximum = 1200, Step = 20, Format = v => $"{v:0} мс" };
+
+        RefreshDevices();
+
+        var refresh = new FlatButton("Обновить список") { Width = 150, Height = 32 };
+        refresh.Click += (_, _) => RefreshDevices();
+
+        return Stack(
+            new SectionTitle("Микрофон", "Если ассистент молчит, начните отсюда: полоска ниже показывает, доходит ли до него звук вообще."),
+            new SettingRow("Устройство", "Пусто — микрофон Windows по умолчанию.", _device),
+            new SettingRow("", "", refresh, 150),
+            new SettingRow("Уровень сигнала",
+                "Говорите — полоска должна двигаться. Если стоит на месте, выбран не тот микрофон или он приглушён в микшере Windows.",
+                new LevelBar(_levelSource)),
+            new SettingRow("Усиление",
+                "Для тихих микрофонов. Поднимайте, пока обычная речь не заполняет полоску примерно наполовину.",
+                _gain, 240),
+            new SectionTitle("Определение речи"),
+            new SettingRow("Порог срабатывания",
+                "Насколько уверенно звук должен быть похож на речь. Реагирует на клавиатуру и музыку — поднимите; не замечает тихую речь — опустите.",
+                _vadThreshold, 240),
+            new SettingRow("Пауза до конца фразы",
+                "Сколько тишины считать концом сказанного. Меньше — быстрее реакция, но фразу может разрезать посреди паузы.",
+                _silenceMs, 240),
+            new SettingRow("Минимальная длина речи",
+                "Короче этого считается шумом. Защита от кашля, щелчков и хлопнувшей двери.",
+                _minSpeechMs, 240));
+    }
+
+    private void RefreshDevices()
+    {
+        var items = new List<(string, string)> { ("Устройство по умолчанию", "") };
+
+        foreach (var device in MicrophoneCapture.ListDevices())
+            items.Add((device.Name + (device.IsDefault ? "  (по умолчанию)" : ""), device.Name));
+
+        _device.SetItems(items, _config.Audio.Device ?? "");
+    }
+
+    private Control BuildSpeechPage()
+    {
+        _model = new DropDownField();
+        _model.SetItems(new[]
+        {
+            ("large-v3-turbo — лучший русский, 547 МБ", "largev3turbo"),
+            ("medium — хороший русский, 539 МБ", "medium"),
+            ("small — приемлемо, 181 МБ", "small"),
+            ("base — слабо, 57 МБ", "base"),
+            ("tiny — плохо, но очень быстро, 31 МБ", "tiny"),
+        });
+
+        _language = new DropDownField();
+        _language.SetItems(new[]
+        {
+            ("Русский", "ru"),
+            ("Английский", "en"),
+            ("Определять автоматически", "auto"),
+        });
+
+        _threads = new SliderField
+        {
+            Minimum = 0, Maximum = Math.Max(4, Environment.ProcessorCount), Step = 1,
+            Format = v => v < 1 ? "авто" : $"{v:0}",
+        };
+
+        _earlyProbe = new ToggleSwitch();
+        _probeAfterMs = new SliderField { Minimum = 400, Maximum = 2000, Step = 50, Format = v => $"{v:0} мс" };
+
+        return Stack(
+            new SectionTitle("Распознавание речи", "Всё считается на этом компьютере. В сеть уходит только загрузка самой модели, один раз."),
+            new SettingRow("Модель",
+                "Чем крупнее, тем лучше русский и тем точнее узнаются короткие имена — но тем дольше ответ без видеокарты. Смена модели применится после перезапуска и потребует загрузки.",
+                _model, 300),
+            new SettingRow("Язык",
+                "На коротких фразах вроде «Ави, ютуб» автоопределение ненадёжно. В русском режиме английские названия приезжают кириллицей, но команды всё равно доходят.",
+                _language),
+            new SettingRow("Потоков",
+                "Ноль — половина ядер процессора. Больше не всегда быстрее: прирост обычно заканчивается на четырёх-шести.",
+                _threads, 240),
+            new SectionTitle("Ранняя реакция", "Из-за неё кайма загорается посреди фразы, а не после того, как вы договорили."),
+            new SettingRow("Проверять имя, не дожидаясь конца фразы",
+                "Стоит одного дополнительного короткого распознавания на каждое слово, произнесённое рядом. На слабом процессоре можно выключить, но реакция станет запаздывающей.",
+                _earlyProbe, 46),
+            new SettingRow("Через сколько проверять",
+                "Меньше — загорается быстрее, но чаще мимо: имя может ещё не прозвучать.",
+                _probeAfterMs, 240));
+    }
+
+    private Control BuildGlowPage()
+    {
+        _overlayEnabled = new ToggleSwitch();
+
+        _monitors = new DropDownField();
+        _monitors.SetItems(new[] { ("Только главный", "primary"), ("Все мониторы", "all") });
+
+        _thickness = new SliderField { Minimum = 0.03, Maximum = 0.2, Step = 0.005, Format = v => $"{v * 100:0.0} %" };
+        _maxOpacity = new SliderField { Minimum = 0.1, Maximum = 1.0, Step = 0.05, Format = v => $"{v * 100:0} %" };
+        _sensingOpacity = new SliderField { Minimum = 0.0, Maximum = 0.6, Step = 0.02, Format = v => $"{v * 100:0} %" };
+        _reactivity = new SliderField { Minimum = 0.0, Maximum = 1.0, Step = 0.05, Format = v => $"{v * 100:0} %" };
+        _fps = new SliderField { Minimum = 20, Maximum = 120, Step = 5, Format = v => $"{v:0}" };
+        _personaColors = new ToggleSwitch();
+        _excludeCapture = new ToggleSwitch();
+
+        return Stack(
+            new SectionTitle("Свечение по краям", "Слабое, пока непонятно, к вам ли обращаются. Разгорается и живёт в такт голосу, когда прозвучало имя."),
+            new SettingRow("Показывать свечение", "", _overlayEnabled, 46),
+            new SettingRow("Мониторы", "", _monitors),
+            new SettingRow("Толщина каймы",
+                "В долях меньшей стороны экрана, чтобы одинаково выглядеть на любом разрешении.",
+                _thickness, 240),
+            new SettingRow("Яркость",
+                "Смысл настройки — обозначить себя и не засветить экран.",
+                _maxOpacity, 240),
+            new SettingRow("Яркость до того, как узнали имя",
+                "Появляется, когда рядом просто кто-то говорит. Должна быть заметно ниже обычной: если обращались не к ассистенту, вас не должно отвлекать. Ноль — не показывать вовсе.",
+                _sensingOpacity, 240),
+            new SettingRow("Отзывчивость на голос",
+                "Ноль — ровное дыхание без реакции на речь. Сто — только голос.",
+                _reactivity, 240),
+            new SectionTitle("Внешний вид"),
+            new SettingRow("Цвета выбранной личности",
+                "У Хики синие, у Ави оранжевые. Выключите, чтобы задать свои в config.json.",
+                _personaColors, 46),
+            new SettingRow("Кадров в секунду",
+                "Тридцати обычно достаточно, и это экономит батарею ноутбука.",
+                _fps, 240),
+            new SettingRow("Прятать от записи экрана",
+                "Свечение не попадёт в скриншоты и трансляции.",
+                _excludeCapture, 46));
+    }
+
+    private Control BuildBehaviorPage()
+    {
+        _armedSeconds = new SliderField { Minimum = 0, Maximum = 20, Step = 1, Format = v => v < 1 ? "выкл." : $"{v:0} с" };
+        _searchFallback = new ToggleSwitch();
+        _matchThreshold = new SliderField { Minimum = 0.4, Maximum = 0.9, Step = 0.01, Format = v => v.ToString("0.00") };
+        _indexApps = new ToggleSwitch();
+        _logTranscripts = new ToggleSwitch();
+        _autostart = new ToggleSwitch();
+        _startMuted = new ToggleSwitch();
+
+        _logLevel = new DropDownField();
+        _logLevel.SetItems(new[]
+        {
+            ("Обычный", "info"),
+            ("Подробный", "debug"),
+            ("Всё подряд", "trace"),
+            ("Только предупреждения", "warn"),
+        });
+
+        return Stack(
+            new SectionTitle("Поведение"),
+            new SettingRow("Ждать команду после имени",
+                "Позволяет сказать «Ави», сделать паузу и договорить. Ноль — имя и команда должны быть одной фразой.",
+                _armedSeconds, 240),
+            new SettingRow("Уверенность при поиске программы",
+                "Запускает не то — поднимите. Не находит очевидное — опустите.",
+                _matchThreshold, 240),
+            new SettingRow("Искать в интернете, если команда не распознана",
+                "Молча проглотить команду хуже, чем показать результаты поиска: так хотя бы видно, что вас услышали.",
+                _searchFallback, 46),
+            new SettingRow("Знать про установленные программы",
+                "Обходит меню «Пуск» и список приложений Windows, чтобы открывать голосом всё, что у вас стоит.",
+                _indexApps, 46),
+            new SectionTitle("Запуск"),
+            new SettingRow("Запускать вместе с Windows", "", _autostart, 46),
+            new SettingRow("Стартовать с выключенным микрофоном", "", _startMuted, 46),
+            new SectionTitle("Журнал"),
+            new SettingRow("Записывать распознанный текст",
+                "Незаменимо при настройке и совершенно не нужно потом. Это ваша речь, которая ложится на диск, — выключите, когда всё заработает.",
+                _logTranscripts, 46),
+            new SettingRow("Подробность журнала", "", _logLevel));
+    }
+
+    private Control BuildAboutPage()
+    {
+        var openConfig = new FlatButton("Открыть папку с настройками") { Width = 230 };
+        openConfig.Click += (_, _) => OpenFolder(AppPaths.Root);
+
+        var openLogs = new FlatButton("Открыть журнал") { Width = 230 };
+        openLogs.Click += (_, _) => OpenFolder(AppPaths.LogDirectory);
+
+        var info = new InfoPanel(_statusSource) { Height = 190 };
+
+        return Stack(
+            new SectionTitle("О программе", "HIKA 0.1.0 — голосовое управление Windows. Всё распознавание идёт на этом компьютере."),
+            info,
+            new SettingRow("", "", openConfig, 230),
+            new SettingRow("", "", openLogs, 230));
+    }
+
+    private static void OpenFolder(string path)
+    {
+        try
+        {
+            AppPaths.EnsureCreated();
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"не удалось открыть {path}", ex, "ui");
+        }
+    }
+
+    // ---- Личность ---------------------------------------------------------
+
+    private void SelectPersona(string id)
+    {
+        _personaId = id;
+        Theme.ApplyPersona(id);
+
+        foreach (var card in _personaCards) card.Selected = card.Persona.Id == id;
+
+        try { Icon = RingLogo.CreateIcon(Theme.Accent, muted: false); } catch { }
+
+        Invalidate(true);
+        foreach (Control c in Controls) c.Invalidate(true);
+
+        SetNotice($"Личность: {Personas.ById(id).Name}. Нажмите «Применить», чтобы сохранить.");
+    }
+
+    // ---- Загрузка и сохранение -------------------------------------------
+
+    private void LoadFromConfig()
+    {
+        var c = _config;
+
+        _initialModel = c.Speech.Model ?? "";
+        _initialDevice = c.Audio.Device ?? "";
+
+        SelectPersona(Personas.ById(c.Persona).Id);
+
+        _respondToBoth.Checked = c.Wake.RespondToBoth;
+        _tolerance.Value = c.Wake.Tolerance;
+        _allowAnywhere.Checked = c.Wake.AllowAnywhere;
+        _extraVariants.Text = string.Join(", ", c.Wake.ExtraVariants ?? new List<string>());
+
+        _device.Value = c.Audio.Device ?? "";
+        _gain.Value = c.Audio.Gain;
+        _vadThreshold.Value = c.Audio.VadThreshold;
+        _silenceMs.Value = c.Audio.SilenceMs;
+        _minSpeechMs.Value = c.Audio.MinSpeechMs;
+
+        _model.Value = c.Speech.Model ?? "largev3turbo";
+        _language.Value = c.Speech.Language ?? "ru";
+        _threads.Value = c.Speech.Threads;
+        _earlyProbe.Checked = c.Speech.EarlyWakeProbe;
+        _probeAfterMs.Value = c.Speech.ProbeAfterMs;
+
+        _overlayEnabled.Checked = c.Overlay.Enabled;
+        _monitors.Value = c.Overlay.Monitors ?? "primary";
+        _thickness.Value = c.Overlay.Thickness;
+        _maxOpacity.Value = c.Overlay.MaxOpacity;
+        _sensingOpacity.Value = c.Overlay.SensingOpacity;
+        _reactivity.Value = c.Overlay.VoiceReactivity;
+        _fps.Value = c.Overlay.TargetFps;
+        _personaColors.Checked = c.Overlay.UsePersonaColors;
+        _excludeCapture.Checked = c.Overlay.ExcludeFromCapture;
+
+        _armedSeconds.Value = c.Behavior.ArmedSeconds;
+        _searchFallback.Checked = c.Behavior.WebSearchFallback;
+        _matchThreshold.Value = c.Behavior.MatchThreshold;
+        _indexApps.Checked = c.Behavior.IndexInstalledApps;
+        _logTranscripts.Checked = c.Behavior.LogTranscripts;
+        _autostart.Checked = AutostartManager.IsEnabled();
+        _startMuted.Checked = c.Behavior.StartMuted;
+        _logLevel.Value = c.Behavior.LogLevel ?? "info";
+
+        SetNotice("");
+    }
+
+    private void Apply()
+    {
+        var c = _store.Current;
+
+        c.Persona = _personaId;
+
+        c.Wake.RespondToBoth = _respondToBoth.Checked;
+        c.Wake.Tolerance = _tolerance.Value;
+        c.Wake.AllowAnywhere = _allowAnywhere.Checked;
+        c.Wake.ExtraVariants = _extraVariants.Text
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        // Список имён — производное от личности, поэтому переписываем его целиком.
+        // Один источник правды: иначе выбор личности и содержимое config.json
+        // начнут расходиться, и победит непонятно что.
+        c.Wake.Words = Personas.WakeWordsFor(_personaId, _respondToBoth.Checked);
+
+        c.Audio.Device = _device.Value;
+        c.Audio.Gain = (float)_gain.Value;
+        c.Audio.VadThreshold = (float)_vadThreshold.Value;
+        c.Audio.SilenceMs = (int)_silenceMs.Value;
+        c.Audio.MinSpeechMs = (int)_minSpeechMs.Value;
+
+        c.Speech.Model = _model.Value;
+        c.Speech.Language = _language.Value;
+        c.Speech.Threads = (int)_threads.Value;
+        c.Speech.EarlyWakeProbe = _earlyProbe.Checked;
+        c.Speech.ProbeAfterMs = (int)_probeAfterMs.Value;
+
+        c.Overlay.Enabled = _overlayEnabled.Checked;
+        c.Overlay.Monitors = _monitors.Value;
+        c.Overlay.Thickness = _thickness.Value;
+        c.Overlay.MaxOpacity = _maxOpacity.Value;
+        c.Overlay.SensingOpacity = _sensingOpacity.Value;
+        c.Overlay.VoiceReactivity = _reactivity.Value;
+        c.Overlay.TargetFps = (int)_fps.Value;
+        c.Overlay.UsePersonaColors = _personaColors.Checked;
+        c.Overlay.ExcludeFromCapture = _excludeCapture.Checked;
+
+        c.Behavior.ArmedSeconds = (int)_armedSeconds.Value;
+        c.Behavior.WebSearchFallback = _searchFallback.Checked;
+        c.Behavior.MatchThreshold = _matchThreshold.Value;
+        c.Behavior.IndexInstalledApps = _indexApps.Checked;
+        c.Behavior.LogTranscripts = _logTranscripts.Checked;
+        c.Behavior.StartMuted = _startMuted.Checked;
+        c.Behavior.LogLevel = _logLevel.Value;
+        c.Behavior.Autostart = _autostart.Checked;
+
+        AutostartManager.Set(_autostart.Checked);
+
+        _store.Save();
+        _config = c;
+
+        try { _onApply(c); }
+        catch (Exception ex) { Log.Error("применение настроек сорвалось", ex, "ui"); }
+
+        // Модель и звуковое устройство подхватываются только при старте:
+        // менять их на живом пайплайне — значит рвать поток посреди фразы.
+        var needsRestart = _model.Value != _initialModel || _device.Value != _initialDevice;
+
+        SetNotice(needsRestart
+            ? "Сохранено. Смена модели или микрофона применится после перезапуска HIKA."
+            : "Сохранено — всё уже работает.");
+
+        _initialModel = _model.Value;
+        _initialDevice = _device.Value;
+    }
+
+    private void SetNotice(string text)
+    {
+        _notice.Text = text;
+        _notice.ForeColor = text.StartsWith("Сохранено") ? Theme.Good : Theme.TextFaint;
+    }
+
+    // ---- Показ и скрытие --------------------------------------------------
+
+    public void ShowWindow()
+    {
+        _config = _store.Current;
+        LoadFromConfig();
+        RefreshDevices();
+
+        Show();
+
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+
+        BringToFront();
+        Activate();
+    }
+
+    public void HideWindow() => Hide();
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // Закрытие крестиком прячет окно, а не выгружает программу: она
+        // фоновая, и выход из неё живёт в меню значка.
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+
+        base.OnFormClosing(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+
+        using var pen = new Pen(Theme.Border);
+        e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+    }
+
+    // ---- Заголовок --------------------------------------------------------
+
+    /// <summary>Своя полоса заголовка: с логотипом, состоянием и перетаскиванием.</summary>
+    private sealed class HeaderBar : Control
+    {
+        private readonly Form _owner;
+        private readonly Func<(string Status, string Microphone, string Recognizer, int CatalogSize)> _status;
+        private readonly System.Windows.Forms.Timer _timer;
+
+        private Point _dragStart;
+        private bool _dragging;
+        private int _hoverButton = -1;
+
+        public HeaderBar(Form owner, Func<(string, string, string, int)> status)
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+                     | ControlStyles.OptimizedDoubleBuffer, true);
+
+            _owner = owner;
+            _status = status;
+            BackColor = Theme.Background;
+
+            _timer = new System.Windows.Forms.Timer { Interval = 700 };
+            _timer.Tick += (_, _) => { if (Visible) Invalidate(); };
+            _timer.Start();
+        }
+
+        private Rectangle CloseButton => new(Width - 46, 20, 32, 32);
+        private Rectangle MinimizeButton => new(Width - 84, 20, 32, 32);
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (CloseButton.Contains(e.Location)) { _owner.Hide(); return; }
+            if (MinimizeButton.Contains(e.Location)) { _owner.WindowState = FormWindowState.Minimized; return; }
+
+            _dragging = true;
+            _dragStart = e.Location;
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e) { _dragging = false; base.OnMouseUp(e); }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            if (_dragging)
+            {
+                _owner.Location = new Point(
+                    _owner.Location.X + e.X - _dragStart.X,
+                    _owner.Location.Y + e.Y - _dragStart.Y);
+            }
+            else
+            {
+                var hover = CloseButton.Contains(e.Location) ? 0
+                          : MinimizeButton.Contains(e.Location) ? 1
+                          : -1;
+
+                if (hover != _hoverButton) { _hoverButton = hover; Invalidate(); }
+            }
+
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e) { _hoverButton = -1; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(BackColor);
+
+            RingLogo.Draw(g, new RectangleF(24, 19, 36, 36), Theme.Accent, glow: 0.55);
+
+            TextRenderer.DrawText(g, "HIKA", Theme.Title, new Rectangle(72, 14, 300, 26),
+                Theme.Text, TextFormatFlags.Left | TextFormatFlags.Top);
+
+            var (status, microphone, _, _) = SafeStatus();
+
+            TextRenderer.DrawText(g, $"{Theme.Current.Name} · {status}", Theme.Small,
+                new Rectangle(72, 40, 460, 20), Theme.TextDim,
+                TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.EndEllipsis);
+
+            if (!string.IsNullOrEmpty(microphone))
+            {
+                TextRenderer.DrawText(g, microphone, Theme.Small,
+                    new Rectangle(Width - 480, 40, 380, 20), Theme.TextFaint,
+                    TextFormatFlags.Right | TextFormatFlags.Top | TextFormatFlags.EndEllipsis);
+            }
+
+            DrawGlyph(g, MinimizeButton, _hoverButton == 1, minimize: true);
+            DrawGlyph(g, CloseButton, _hoverButton == 0, minimize: false);
+
+            using var pen = new Pen(Theme.Border);
+            g.DrawLine(pen, 0, Height - 1, Width, Height - 1);
+        }
+
+        private (string, string, string, int) SafeStatus()
+        {
+            try { return _status(); }
+            catch { return ("—", "", "", 0); }
+        }
+
+        private static void DrawGlyph(Graphics g, Rectangle box, bool hover, bool minimize)
+        {
+            if (hover)
+            {
+                Theme.FillRounded(g, box, 6,
+                    minimize ? Theme.CardHover : Theme.Blend(Theme.Card, Theme.Danger, 0.55));
+            }
+
+            using var pen = new Pen(hover ? Theme.Text : Theme.TextDim, 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            var cx = box.X + box.Width / 2;
+            var cy = box.Y + box.Height / 2;
+
+            if (minimize)
+            {
+                g.DrawLine(pen, cx - 6, cy, cx + 6, cy);
+            }
+            else
+            {
+                g.DrawLine(pen, cx - 5, cy - 5, cx + 5, cy + 5);
+                g.DrawLine(pen, cx + 5, cy - 5, cx - 5, cy + 5);
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _timer.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>Сводка состояния на странице «О программе».</summary>
+    private sealed class InfoPanel : Panel
+    {
+        private readonly Func<(string Status, string Microphone, string Recognizer, int CatalogSize)> _status;
+        private readonly System.Windows.Forms.Timer _timer;
+
+        public InfoPanel(Func<(string, string, string, int)> status)
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+                     | ControlStyles.OptimizedDoubleBuffer, true);
+
+            _status = status;
+            BackColor = Theme.Panel;
+
+            _timer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _timer.Tick += (_, _) => { if (Visible) Invalidate(); };
+            _timer.Start();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(BackColor);
+
+            var box = new Rectangle(0, 4, Width - 1, Height - 12);
+            Theme.FillRounded(g, box, 12, Theme.Card);
+            Theme.DrawRounded(g, box, 12, Theme.Border);
+
+            (string, string)[] rows;
+
+            try
+            {
+                var (status, microphone, recognizer, catalogSize) = _status();
+                rows = new[]
+                {
+                    ("Состояние", status),
+                    ("Микрофон", string.IsNullOrEmpty(microphone) ? "—" : microphone),
+                    ("Распознавание", string.IsNullOrEmpty(recognizer) ? "—" : recognizer),
+                    ("Знает команд", catalogSize.ToString()),
+                    ("Настройки", AppPaths.Root),
+                };
+            }
+            catch
+            {
+                rows = new[] { ("Состояние", "—") };
+            }
+
+            var y = box.Y + 18;
+            foreach (var (label, value) in rows)
+            {
+                TextRenderer.DrawText(g, label, Theme.Small, new Rectangle(box.X + 20, y, 160, 22),
+                    Theme.TextFaint, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+                TextRenderer.DrawText(g, value, Theme.Body, new Rectangle(box.X + 180, y, box.Width - 200, 22),
+                    Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.PathEllipsis);
+
+                y += 30;
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _timer.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+}

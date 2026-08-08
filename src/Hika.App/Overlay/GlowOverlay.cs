@@ -31,6 +31,7 @@ public sealed class GlowOverlay : IDisposable
 
     private OverlayConfig _config = new();
     private GlowPalette _palette = new(new OverlayConfig());
+    private string _personaId = "hika";
 
     private volatile bool _running;
     private volatile bool _framePending;
@@ -50,7 +51,7 @@ public sealed class GlowOverlay : IDisposable
     public bool IsRunning => _running;
     public OverlayState State => (OverlayState)Volatile.Read(ref _state);
 
-    public void Start(OverlayConfig config)
+    public void Start(OverlayConfig config, string personaId = "hika")
     {
         lock (_lock)
         {
@@ -62,7 +63,8 @@ public sealed class GlowOverlay : IDisposable
             }
 
             _config = config;
-            _palette = new GlowPalette(config);
+            _personaId = personaId;
+            _palette = new GlowPalette(config, personaId);
             _running = true;
 
             _uiThread = new Thread(UiThreadBody)

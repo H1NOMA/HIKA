@@ -71,6 +71,9 @@ public sealed class AppHost : IDisposable
     public string VadDescription => _vad?.Name ?? "не запущен";
     public int CatalogSize => _catalog.Count;
 
+    /// <summary>Текущая громкость голоса, 0..1 — для полоски уровня в настройках.</summary>
+    public double CurrentLevel => _microphone.Muted ? 0 : _levelMeter.Normalized;
+
     /// <summary>Состояние изменилось — для значка в трее.</summary>
     public event Action<HostState>? StateChanged;
 
@@ -92,7 +95,7 @@ public sealed class AppHost : IDisposable
         _router = new SkillRouter(_catalog);
         _wakeMatcher = new WakeWordMatcher(config.Wake);
 
-        if (config.Overlay.Enabled) _overlay.Start(config.Overlay);
+        if (config.Overlay.Enabled) _overlay.Start(config.Overlay, config.Persona);
 
         // Детектор речи: сначала пробуем нейросетевой, при неудаче остаёмся
         // на энергетическом. Ждать скачивания модели, чтобы просто запуститься, незачем.
@@ -511,6 +514,12 @@ public sealed class AppHost : IDisposable
             _wakeMatcher = new WakeWordMatcher(config.Wake);
             _catalog.Load(config);
             _router = new SkillRouter(_catalog);
+
+            // Свечение пересобираем целиком: цвета, толщина и набор мониторов
+            // задаются при создании окон, и подменить их на лету дешевле всего
+            // именно так — окна создаются за десятки миллисекунд.
+            _overlay.Stop();
+            if (config.Overlay.Enabled) _overlay.Start(config.Overlay, config.Persona);
 
             Log.Info("настройки применены на лету", "host");
         }

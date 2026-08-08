@@ -8,6 +8,12 @@ namespace Hika.Config;
 /// </summary>
 public sealed class HikaConfig
 {
+    /// <summary>
+    /// Кто сейчас откликается: hika или avi. Задаёт главное имя и цвет,
+    /// которым живёт всё остальное — значок, свечение, окно настроек.
+    /// </summary>
+    public string Persona { get; set; } = "hika";
+
     public AudioConfig Audio { get; set; } = new();
     public SpeechConfig Speech { get; set; } = new();
     public WakeConfig Wake { get; set; } = new();
@@ -97,11 +103,15 @@ public sealed class SpeechConfig
 public sealed class WakeConfig
 {
     /// <summary>
-    /// Основные слова пробуждения. Варианты произношения добавляются автоматически.
+    /// Слова пробуждения.
     ///
     /// «Хико» стоит наравне с «Хика», а не считается её искажением: люди
     /// произносят имя так, как им удобнее, и подгонять человека под словарь —
     /// не та сторона, с которой стоит решать задачу.
+    ///
+    /// Внимание: список переписывается окном настроек при выборе личности,
+    /// чтобы выбор и содержимое файла не разошлись. Свои имена и написания
+    /// добавляйте в <see cref="ExtraVariants"/> — их не трогает никто.
     /// </summary>
     public List<string> Words { get; set; } = new() { "хика", "хико", "ави" };
 
@@ -134,6 +144,12 @@ public sealed class WakeConfig
 
     /// <summary>Реагировать на слово пробуждения где угодно во фразе, а не только в начале.</summary>
     public bool AllowAnywhere { get; set; } = false;
+
+    /// <summary>
+    /// Откликаться и на имя второй личности. Цвет и подписи при этом остаются
+    /// от выбранной — меняется только то, на что она отзывается.
+    /// </summary>
+    public bool RespondToBoth { get; set; } = true;
 }
 
 public sealed class OverlayConfig
@@ -155,7 +171,17 @@ public sealed class OverlayConfig
     /// <summary>Насколько сильно голос раскачивает свечение, 0..1.</summary>
     public double VoiceReactivity { get; set; } = 0.75;
 
-    /// <summary>Цвета каймы по кругу: верх, право, низ, лево. Оттенок плавно перетекает между ними.</summary>
+    /// <summary>
+    /// Брать цвета каймы у выбранной личности: у Хики синие, у Ави оранжевые.
+    /// Выключите, если хотите задать свои в <see cref="Colors"/>.
+    /// </summary>
+    public bool UsePersonaColors { get; set; } = true;
+
+    /// <summary>
+    /// Свои цвета каймы по кругу: верх, право, низ, лево. Оттенок плавно
+    /// перетекает между ними. Действуют, только если выключено
+    /// <see cref="UsePersonaColors"/>.
+    /// </summary>
     public List<string> Colors { get; set; } = new() { "#3AA0FF", "#8A6CFF", "#FF5FA2", "#31D6BC" };
 
     public string SuccessColor { get; set; } = "#3BE07E";

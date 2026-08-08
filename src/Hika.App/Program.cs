@@ -5,6 +5,7 @@ using Hika.Config;
 using Hika.Diagnostics;
 using Hika.Startup;
 using Hika.Tray;
+using Hika.Ui;
 
 namespace Hika;
 
@@ -119,9 +120,49 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
+        Ui.Theme.ApplyPersona(config.Persona);
 
         using var host = new AppHost(store);
-        using var tray = new TrayIcon();
+        using var tray = new TrayIcon(config.Persona);
+
+        // Окно создаётся один раз и дальше только прячется: пересоздавать его
+        // на каждое открытие — терять и позицию, и выбранный раздел.
+        SettingsWindow? settings = null;
+
+        SettingsWindow GetSettings()
+        {
+            if (settings is null || settings.IsDisposed)
+            {
+                settings = new SettingsWindow(
+                    store,
+                    levelSource: () => host.CurrentLevel,
+                    statusSource: () => (
+                        DescribeState(host.State, host.Muted),
+                        host.MicrophoneName,
+                        host.RecognizerDescription,
+                        host.CatalogSize),
+                    onApply: updated =>
+                    {
+                        host.ApplyConfig(updated);
+                        tray.SetPersona(updated.Persona);
+                        tray.UpdateState(host.State, host.Muted);
+                    },
+                    onLiveListen: () => LaunchInConsole(tray, "--listen"),
+                    onDiagnostics: () => LaunchInConsole(tray, "--diagnose"));
+            }
+
+            return settings;
+        }
+
+        tray.SettingsRequested += () =>
+        {
+            try { GetSettings().ShowWindow(); }
+            catch (Exception ex)
+            {
+                Log.Error("окно настроек не открылось", ex, "ui");
+                tray.ShowMessage("HIKA", "Настройки не открылись. Подробности в журнале.", ToolTipIcon.Warning);
+            }
+        };
 
         tray.MuteToggleRequested += () =>
         {
@@ -130,22 +171,7 @@ internal static class Program
         };
 
         tray.DiagnosticsRequested += () => LaunchInConsole(tray, "--diagnose");
-
-        // Живую проверку запускаем с выключенным микрофоном основного экземпляра:
-        // иначе на каждую фразу отреагируют оба, и человек получит команду дважды.
-        tray.LiveListenRequested += () =>
-        {
-            if (!host.Muted)
-            {
-                host.ToggleMute();
-                tray.UpdateState(host.State, host.Muted);
-                tray.ShowMessage("HIKA",
-                    "Микрофон основного экземпляра выключен, пока идёт живая проверка. " +
-                    "Включить обратно — двойным щелчком по значку.");
-            }
-
-            LaunchInConsole(tray, "--listen");
-        };
+        tray.LiveListenRequested += () => LaunchInConsole(tray, "--listen");
         tray.ExitRequested += () => Application.Exit();
 
         host.StateChanged += state =>
@@ -215,6 +241,19 @@ internal static class Program
             tray.ShowMessage("HIKA", "Проверка не запустилась. Подробности в журнале.", ToolTipIcon.Warning);
         }
     }
+
+    private static string DescribeState(HostState state, bool muted) => muted
+        ? "микрофон выключен"
+        : state switch
+        {
+            HostState.Starting => "запускается",
+            HostState.Idle => "слушает",
+            HostState.Sensing => "слышу голос",
+            HostState.Armed => "жду команду",
+            HostState.Working => "выполняю",
+            HostState.Failed => "ошибка, смотрите журнал",
+            _ => "—",
+        };
 
     private static string Capitalize(string s)
         => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
