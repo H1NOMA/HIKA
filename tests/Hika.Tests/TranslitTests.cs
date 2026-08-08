@@ -56,7 +56,7 @@ public class TranslitTests
     public void СвёрткаУбираетУдвоенияИНемуюE()
     {
         Assert.Equal("telegram", Translit.Fold("telegramm"));
-        Assert.Equal("khrom", Translit.Fold("chrome"));
+        Assert.Equal("chrom", Translit.Fold("chrome"));
     }
 
     [Fact]

@@ -15,8 +15,8 @@ namespace Hika.Nlu;
 ///   фотошоп -> fotoshop     photoshop -> fotoshop     совпало точно
 ///   ворд    -> vord         word      -> vord         совпало точно
 ///   эксель  -> eksel        excel     -> eksel        совпало точно
-///   твич    -> tvikh        twitch    -> tvikh        совпало точно
-///   хром    -> hrom         chrome    -> khrom        разница в один символ
+///   твич    -> tvich        twitch    -> tvich        совпало точно
+///   хром    -> hrom         chrome    -> chrom        разница в один символ
 ///   ютуб    -> iutub        youtube   -> ioutub       разница в один символ
 ///
 /// Побочная выгода: когда Whisper работает в русском режиме и выдаёт английские
@@ -86,6 +86,13 @@ public static class Translit
                     case "ph": sb.Append('f'); i++; continue;
                     case "ck": sb.Append('k'); i++; continue;
                     case "qu": sb.Append("kv"); i++; continue;
+
+                    // «ch» оставляем как есть и обязательно ловим здесь, до
+                    // одиночной «c». Иначе она успеет превратиться в «k»,
+                    // и русское «ч» (которое транслитерируется как раз в «ch»)
+                    // разойдётся с английским: «твич» дало бы tvikh,
+                    // а «twitch» — tvich.
+                    case "ch": sb.Append("ch"); i++; continue;
                 }
             }
 

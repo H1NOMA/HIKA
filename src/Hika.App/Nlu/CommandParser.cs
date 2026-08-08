@@ -102,7 +102,10 @@ public static class CommandParser
         }),
         (IntentKind.CloseWindow, new[]
         {
-            "закрой окно", "закрой это", "закрой", "close window", "close it",
+            // Голого «закрой» здесь намеренно нет: от «открой» оно отличается
+            // одной буквой, и односложная команда перехватывала бы каждый
+            // запуск программы.
+            "закрой окно", "закрой это", "close window", "close it",
         }),
         (IntentKind.Screenshot, new[]
         {
@@ -121,8 +124,18 @@ public static class CommandParser
             }))
             .ToArray();
 
-    /// <summary>Порог для готовых команд. Высокий намеренно: перехват запуска программ хуже, чем пропуск команды.</summary>
+    /// <summary>
+    /// Порог для готовых команд. Высокий намеренно: перехватить запуск программы
+    /// хуже, чем не расслышать команду — во втором случае человек просто повторит.
+    /// </summary>
     private const double FixedCommandThreshold = 0.80;
+
+    /// <summary>
+    /// Для команд из одного слова порог выше. Короткие слова слишком легко
+    /// спутать: «громче» и «горче» — одна буква, и такой запас нужен,
+    /// чтобы односложные команды не срабатывали на всё подряд.
+    /// </summary>
+    private const double SingleWordThreshold = 0.90;
 
     public static Intent Parse(string text)
     {
@@ -184,6 +197,9 @@ public static class CommandParser
             if (tokens.Length > words + 1) continue;
 
             var score = FuzzyMatch.PhraseSimilarity(spokenKeys, keys);
+            var threshold = words == 1 ? SingleWordThreshold : FixedCommandThreshold;
+            if (score < threshold) continue;
+
             if (score > bestScore)
             {
                 bestScore = score;
@@ -191,7 +207,7 @@ public static class CommandParser
             }
         }
 
-        if (bestKind == IntentKind.None || bestScore < FixedCommandThreshold) return null;
+        if (bestKind == IntentKind.None) return null;
 
         Log.Debug($"готовая команда: {bestKind} (оценка {bestScore:F2})", "nlu");
         return new Intent(bestKind, "", bestScore);

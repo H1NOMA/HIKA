@@ -95,8 +95,8 @@ build\Hika.exe
 ```
 фотошоп → fotoshop     photoshop → fotoshop     совпало точно
 ворд    → vord         word      → vord         совпало точно
-твич    → tvikh        twitch    → tvikh        совпало точно
-хром    → hrom         chrome    → khrom        разница в один символ
+твич    → tvich        twitch    → tvich        совпало точно
+хром    → hrom         chrome    → chrom        разница в один символ
 ```
 
 Побочная выгода: английские команды, приезжающие от модели кириллицей

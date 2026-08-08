@@ -192,9 +192,14 @@ public sealed class WakeWordMatcher
             var length = entry.Form.Length;
             if (token.Length < length + 3) continue;
 
-            // Берём столько же букв, сколько в имени, плюс-минус одна.
-            for (int take = Math.Max(2, length - 1); take <= Math.Min(token.Length - 3, length + 1); take++)
+            // Берём столько же букв, сколько в имени, плюс-минус одну.
+            // Порядок важен: сначала точная длина, иначе «авиоткрой» разрежется
+            // как «ав» + «иоткрой» вместо «ави» + «открой» — распознается всё
+            // равно, но команда достанется разбору в исковерканном виде.
+            foreach (var take in new[] { length, length + 1, length - 1 })
             {
+                if (take < 2 || take > token.Length - 3) continue;
+
                 var head = token[..take];
                 var distance = MinDistance(Translit.Keys(head), entry.Keys);
                 if (distance > Math.Min(1, entry.AllowedDistance)) continue;
