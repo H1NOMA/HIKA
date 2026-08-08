@@ -644,10 +644,19 @@ public sealed class AppHost : IDisposable
         var intent = CommandParser.Parse(command);
         Log.Info($"команда: «{command}» -> {intent}", "host");
 
+        // Разговор, начатый минуту назад, продолжается: реплика без глагола
+        // после ответа — это почти наверняка продолжение, а не название
+        // программы. Команды при этом слушаться не перестают: явный глагол
+        // и готовые команды вроде «тише» исполняются как обычно.
+        var continuingTalk = wasArmed
+            && DateTime.UtcNow <= _conversationUntil
+            && !intent.ExplicitVerb
+            && intent.Kind == IntentKind.Launch;
+
         // Явный вопрос в каталог даже не заглядывает: «расскажи про Steam» —
         // это просьба рассказать, и потратить на неё поиск по тысяче ярлыков
         // значит подарить человеку лишнюю задержку ради заведомо пустого дела.
-        if (Conversation.IsDefinitelyTalk(command) && CanTalk())
+        if (CanTalk() && (continuingTalk || Conversation.IsDefinitelyTalk(command)))
         {
             journal.Intent = "разговор";
             journal.Success = Talk(command);
@@ -797,12 +806,20 @@ public sealed class AppHost : IDisposable
             return;
         }
 
-        _armedUntil = DateTime.UtcNow.AddSeconds(
-            Math.Max(1, _configStore.Current.Brain.FollowUpSeconds));
+        var seconds = Math.Max(1, _configStore.Current.Brain.FollowUpSeconds);
+
+        _armedUntil = DateTime.UtcNow.AddSeconds(seconds);
+        _conversationUntil = _armedUntil;
 
         SetState(HostState.Armed);
         _overlay.SetState(OverlayState.Listening);
     }
+
+    /// <summary>
+    /// До какого момента следующая реплика считается продолжением разговора,
+    /// а не новой командой.
+    /// </summary>
+    private DateTime _conversationUntil = DateTime.MinValue;
 
     // ---- Наблюдения --------------------------------------------------------
 

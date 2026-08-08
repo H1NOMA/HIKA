@@ -58,6 +58,26 @@ public class ConversationTests
         Assert.True(Conversation.MightBeTalk(text), $"«{text}» стоит попробовать как вопрос");
     }
 
+    [Theory]
+    // Продолжение разговора: вопросительное слово стоит вторым, и без снятия
+    // затравки оно не опознаётся вовсе — а продолжение это ровно то,
+    // ради чего разговор и заводится.
+    [InlineData("а почему")]
+    [InlineData("ну и что дальше")]
+    [InlineData("слушай а зачем")]
+    [InlineData("кстати расскажи ещё")]
+    public void ПродолжениеРазговораОпознаётся(string text)
+    {
+        Assert.True(Conversation.MightBeTalk(text), $"«{text}» — это продолжение разговора");
+    }
+
+    [Fact]
+    public void ЗатравкаНеСъедаетКомандуЦеликом()
+    {
+        // «Ну открой ютуб» — всё ещё команда, несмотря на «ну» впереди.
+        Assert.False(Conversation.MightBeTalk("ну открой ютуб"));
+    }
+
     [Fact]
     public void ОдинокоеСловоВопросомНеСчитается()
     {

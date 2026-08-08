@@ -51,6 +51,21 @@ public static class Conversation
         "what", "who", "where", "when", "how", "which", "whose", "why",
     };
 
+    /// <summary>
+    /// Затравки, с которых начинается продолжение разговора: «а почему?»,
+    /// «ну и что дальше», «слушай, а зачем».
+    ///
+    /// Без их снятия продолжение не опознаётся вовсе: вопросительное слово
+    /// стоит вторым, а проверка смотрит на первое. А продолжение — это ровно
+    /// то, ради чего разговор и заводится.
+    /// </summary>
+    private static readonly HashSet<string> LeadIns = new(StringComparer.Ordinal)
+    {
+        "а", "и", "но", "ну", "так", "вот", "ладно", "хорошо", "окей", "ок",
+        "слушай", "скажи", "погоди", "стоп", "кстати", "тогда", "значит",
+        "and", "but", "so", "ok", "okay", "well", "hey",
+    };
+
     /// <summary>Слова, после которых это точно не разговор, чем бы фраза ни начиналась.</summary>
     private static readonly HashSet<string> HardCommandWords = new(StringComparer.Ordinal)
     {
@@ -65,7 +80,7 @@ public static class Conversation
     /// </summary>
     public static bool IsDefinitelyTalk(string text)
     {
-        var tokens = TextNormalizer.Tokenize(text);
+        var tokens = StripLeadIns(TextNormalizer.Tokenize(text));
         if (tokens.Length == 0) return false;
 
         // «Хико, расскажи анекдот и открой ютуб» — тут всё-таки есть команда,
@@ -81,12 +96,23 @@ public static class Conversation
     }
 
     /// <summary>
+    /// Снимает затравки продолжения. Не больше двух и никогда до пустоты:
+    /// «ну так что?» — вопрос, а «ну» и «так» по отдельности — ничего.
+    /// </summary>
+    private static string[] StripLeadIns(string[] tokens)
+    {
+        var start = 0;
+        while (start < tokens.Length - 1 && start < 2 && LeadIns.Contains(tokens[start])) start++;
+        return start == 0 ? tokens : tokens[start..];
+    }
+
+    /// <summary>
     /// Фраза может оказаться вопросом. Проверяется только после того,
     /// как исполнить её как команду не вышло.
     /// </summary>
     public static bool MightBeTalk(string text)
     {
-        var tokens = TextNormalizer.Tokenize(text);
+        var tokens = StripLeadIns(TextNormalizer.Tokenize(text));
         if (tokens.Length == 0) return false;
 
         if (IsDefinitelyTalk(text)) return true;
