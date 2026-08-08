@@ -30,6 +30,13 @@ public sealed class SettingsWindow : Form
     private readonly Action _onTestOverlay;
     private readonly Func<(string Status, string Microphone, string Recognizer, int CatalogSize)> _statusSource;
 
+    /// <summary>
+    /// Живой ведущий — нужен разделам, где показывается не настройка, а состояние:
+    /// какой голос выбран на самом деле, что уже выучено, отвечает ли ключ.
+    /// Может отсутствовать: окно открывается и до того, как всё поднялось.
+    /// </summary>
+    private readonly AppHost? _host;
+
     private HikaConfig _config;
 
     private readonly NavList _nav = new();
@@ -69,6 +76,34 @@ public sealed class SettingsWindow : Form
     private ToggleSwitch _personaColors = null!;
     private ToggleSwitch _excludeCapture = null!;
 
+    private ToggleSwitch _voiceEnabled = null!;
+    private DropDownField _voiceEngine = null!;
+    private DropDownField _voiceName = null!;
+    private SliderField _voiceRate = null!;
+    private SliderField _voiceVolume = null!;
+    private ToggleSwitch _speakFailures = null!;
+    private ToggleSwitch _speakConfirmations = null!;
+    private ToggleSwitch _suppressMic = null!;
+    private Label _voiceStatus = null!;
+
+    private ToggleSwitch _brainEnabled = null!;
+    private TextField _apiKey = null!;
+    private DropDownField _brainModel = null!;
+    private SliderField _brainMaxTokens = null!;
+    private SliderField _followUpSeconds = null!;
+    private ToggleSwitch _answerUnknown = null!;
+    private ToggleSwitch _shareProfile = null!;
+    private TextField _brainStyle = null!;
+    private Label _brainStatus = null!;
+
+    private ToggleSwitch _learningEnabled = null!;
+    private ToggleSwitch _keepJournal = null!;
+    private SliderField _maxPromptTerms = null!;
+    private ToggleSwitch _learnWakeVariants = null!;
+    private SliderField _wakeVariantThreshold = null!;
+    private ToggleSwitch _learnAliases = null!;
+    private Label _learningStatus = null!;
+
     private SliderField _armedSeconds = null!;
     private ToggleSwitch _searchFallback = null!;
     private SliderField _matchThreshold = null!;
@@ -90,7 +125,8 @@ public sealed class SettingsWindow : Form
         Action<HikaConfig> onApply,
         Action onLiveListen,
         Action onDiagnostics,
-        Action onTestOverlay)
+        Action onTestOverlay,
+        AppHost? host = null)
     {
         _store = store;
         _levelSource = levelSource;
@@ -99,6 +135,7 @@ public sealed class SettingsWindow : Form
         _onLiveListen = onLiveListen;
         _onDiagnostics = onDiagnostics;
         _onTestOverlay = onTestOverlay;
+        _host = host;
 
         _config = store.Current;
         _personaId = Personas.ById(_config.Persona).Id;
@@ -144,6 +181,9 @@ public sealed class SettingsWindow : Form
             ("persona", "Личность"),
             ("mic", "Микрофон"),
             ("speech", "Распознавание"),
+            ("voice", "Голос"),
+            ("brain", "Разговор"),
+            ("learning", "Обучение"),
             ("glow", "Свечение"),
             ("behavior", "Поведение"),
             ("about", "О программе"),
@@ -228,6 +268,9 @@ public sealed class SettingsWindow : Form
         _pages["persona"] = BuildPersonaPage();
         _pages["mic"] = BuildMicrophonePage();
         _pages["speech"] = BuildSpeechPage();
+        _pages["voice"] = BuildVoicePage();
+        _pages["brain"] = BuildBrainPage();
+        _pages["learning"] = BuildLearningPage();
         _pages["glow"] = BuildGlowPage();
         _pages["behavior"] = BuildBehaviorPage();
         _pages["about"] = BuildAboutPage();
@@ -488,6 +531,366 @@ public sealed class SettingsWindow : Form
             new SettingRow("Подробность журнала", "", _logLevel));
     }
 
+    // ---- Голос ------------------------------------------------------------
+
+    private Control BuildVoicePage()
+    {
+        _voiceEnabled = new ToggleSwitch();
+        _speakFailures = new ToggleSwitch();
+        _speakConfirmations = new ToggleSwitch();
+        _suppressMic = new ToggleSwitch();
+
+        _voiceEngine = new DropDownField();
+        _voiceEngine.SetItems(new[]
+        {
+            ("Лучший из доступных", "auto"),
+            ("Голос из Windows", "windows"),
+            ("Нейроголоса Microsoft (через интернет)", "edge"),
+            ("Не говорить", "off"),
+        });
+
+        _voiceName = new DropDownField();
+        _voiceRate = new SliderField { Minimum = 0.7, Maximum = 1.6, Step = 0.05, Format = v => $"{v:0.00}×" };
+        _voiceVolume = new SliderField { Minimum = 0.1, Maximum = 1.0, Step = 0.05, Format = v => $"{v * 100:0} %" };
+
+        _voiceStatus = new Label
+        {
+            AutoSize = false,
+            Height = 46,
+            ForeColor = Theme.TextFaint,
+            Font = Theme.Small,
+            BackColor = Theme.Panel,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var test = new FlatButton("Сказать что-нибудь", primary: true) { Width = 210 };
+        test.Click += (_, _) =>
+        {
+            var name = Personas.ById(_personaId).Name;
+            _host?.Voice.Say($"Проверка связи. Меня зовут {name}, и вот так я звучу.");
+            RefreshVoiceStatus();
+        };
+
+        var install = new FlatButton("Как поставить нейроголоса") { Width = 250 };
+        install.Click += (_, _) => OpenSpeechSettings();
+
+        return Stack(
+            new SectionTitle("Голос",
+                "Ответы на вопросы произносятся вслух. Запуск программ — нет: действие видно и так, " +
+                "а «открываю Steam» поверх открывающегося Steam только мешает."),
+            _voiceStatus,
+            new SettingRow("Отвечать голосом", "", _voiceEnabled, 46),
+            new SettingRow("Откуда брать голос",
+                "«Лучший из доступных» сначала ищет нейроголос, установленный в самой Windows: он звучит " +
+                "так же хорошо и ничего никуда не отправляет. Нейроголоса Microsoft через интернет — " +
+                "лучшее звучание, но произносимый текст уходит на серверы Microsoft.",
+                _voiceEngine),
+            new SettingRow("Голос", "Список обновляется при открытии окна.", _voiceName),
+            new SettingRow("Проверка", "", test, 210),
+            new SettingRow("Нейроголоса в Windows",
+                "Их ставят один раз: Параметры → Время и язык → Речь → Управление голосами → Добавить голоса. " +
+                "Нужен тот, у кого в названии есть «Natural» — обычные голоса звучат механически.",
+                install, 250),
+            new SectionTitle("Как говорить"),
+            new SettingRow("Скорость", "", _voiceRate, 240),
+            new SettingRow("Громкость", "", _voiceVolume, 240),
+            new SectionTitle("Когда говорить"),
+            new SettingRow("Говорить, если не получилось",
+                "Короткое «не нашла такого» вместо молчаливой красной вспышки.",
+                _speakFailures, 46),
+            new SettingRow("Подтверждать запуск голосом",
+                "Обычно не нужно: программа открывается на глазах.",
+                _speakConfirmations, 46),
+            new SettingRow("Глушить микрофон, пока говорю",
+                "Обязательно, если звук идёт из колонок: иначе я услышу собственный голос и отвечу сама себе. " +
+                "В наушниках можно выключить.",
+                _suppressMic, 46));
+    }
+
+    private void RefreshVoices()
+    {
+        var items = new List<(string, string)> { ("Выбрать лучший сам", "") };
+
+        try
+        {
+            var voices = _host?.Voice.AvailableVoices ?? Array.Empty<Speech.VoiceInfo>();
+            foreach (var voice in voices)
+                items.Add((voice.Describe(), voice.Name));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"список голосов не получен: {ex.Message}", "ui");
+        }
+
+        _voiceName.SetItems(items, _config.Voice.Voice ?? "");
+    }
+
+    private void RefreshVoiceStatus()
+    {
+        if (_host is null)
+        {
+            _voiceStatus.Text = "";
+            return;
+        }
+
+        var voice = _host.Voice;
+
+        if (!voice.IsReady)
+        {
+            _voiceStatus.Text = $"Сейчас: {voice.Description}";
+            _voiceStatus.ForeColor = Theme.TextFaint;
+            return;
+        }
+
+        if (voice.SoundsRobotic)
+        {
+            _voiceStatus.Text = $"Сейчас: {voice.Description}. Это старый механический голос — " +
+                                "нейроголосов в системе не нашлось.";
+            _voiceStatus.ForeColor = Theme.Warn;
+            return;
+        }
+
+        _voiceStatus.Text = $"Сейчас: {voice.Description}";
+        _voiceStatus.ForeColor = Theme.Good;
+    }
+
+    private static void OpenSpeechSettings()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:speech")
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("не удалось открыть параметры речи Windows", ex, "ui");
+        }
+    }
+
+    // ---- Разговор ----------------------------------------------------------
+
+    private Control BuildBrainPage()
+    {
+        _brainEnabled = new ToggleSwitch();
+        _answerUnknown = new ToggleSwitch();
+        _shareProfile = new ToggleSwitch();
+
+        _apiKey = new TextField { Secret = true, Placeholder = "sk-ant-..." };
+        _brainStyle = new TextField { Placeholder = "например: отвечай сухо и без вежливостей" };
+
+        _brainModel = new DropDownField();
+        _brainModel.SetItems(new[]
+        {
+            ("Claude Opus 5 — самый умный", "claude-opus-5"),
+            ("Claude Sonnet 5 — быстрее и дешевле", "claude-sonnet-5"),
+            ("Claude Haiku 4.5 — самый быстрый", "claude-haiku-4-5"),
+        });
+
+        _brainMaxTokens = new SliderField { Minimum = 150, Maximum = 2000, Step = 50, Format = v => $"{v:0}" };
+        _followUpSeconds = new SliderField { Minimum = 0, Maximum = 40, Step = 1, Format = v => v < 1 ? "выкл." : $"{v:0} с" };
+
+        _brainStatus = new Label
+        {
+            AutoSize = false,
+            Height = 46,
+            ForeColor = Theme.TextFaint,
+            Font = Theme.Small,
+            BackColor = Theme.Panel,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var save = new FlatButton("Сохранить ключ", primary: true) { Width = 190 };
+        save.Click += (_, _) =>
+        {
+            var typed = _apiKey.Text.Trim();
+
+            // Точки — это показанный замаскированный ключ, а не новый.
+            if (typed.Contains('…')) { SetNotice("Ключ не изменился."); return; }
+
+            if (Brain.ApiKeyStore.Write(typed))
+            {
+                _apiKey.Text = Brain.ApiKeyStore.Masked();
+                SetNotice("Ключ сохранён. Нажмите «Применить», чтобы включить разговор.");
+            }
+            else
+            {
+                SetNotice("Ключ сохранить не удалось — подробности в журнале.");
+            }
+
+            RefreshBrainStatus();
+        };
+
+        var test = new FlatButton("Проверить") { Width = 140 };
+        test.Click += (_, _) => TestBrain();
+
+        var forget = new FlatButton("Забыть разговор") { Width = 190 };
+        forget.Click += (_, _) =>
+        {
+            _host?.Brain.Forget();
+            SetNotice("Разговор начат заново.");
+        };
+
+        return Stack(
+            new SectionTitle("Разговор",
+                "Всё, что не оказалось командой, можно отдать Claude и услышать ответ вслух. " +
+                "Работает через интернет и по вашему ключу — то есть за ваши деньги. " +
+                "Запуск программ этого не касается и по-прежнему идёт мгновенно и без сети."),
+            _brainStatus,
+            new SettingRow("Отвечать на вопросы", "", _brainEnabled, 46),
+            new SettingRow("Ключ доступа",
+                "Берётся на console.anthropic.com → API Keys. Хранится отдельно от config.json " +
+                "и зашифрован средствами Windows: скопированный на другой компьютер файл бесполезен.",
+                _apiKey),
+            new SettingRow("", "", save, 190),
+            new SettingRow("", "", test, 140),
+            new SectionTitle("Как отвечать"),
+            new SettingRow("Модель", "", _brainModel),
+            new SettingRow("Предел длины ответа",
+                "В токенах — это примерно полтора знака каждый. Маленький предел здесь благо: " +
+                "текст, который приятно читать, невыносимо слушать.",
+                _brainMaxTokens, 240),
+            new SettingRow("Свой характер",
+                "Дописывается к описанию личности. Пусто — как есть.",
+                _brainStyle),
+            new SectionTitle("Как продолжать"),
+            new SettingRow("Слушать продолжение без имени",
+                "После ответа можно сразу спросить «а почему?», не называя имени снова. Ради этого разговор и затевался.",
+                _followUpSeconds, 240),
+            new SettingRow("Отвечать, когда команда не нашлась",
+                "Вместо красной вспышки — попытка ответить словами. Явное «запусти» это не затрагивает: " +
+                "оно по-прежнему обязано запустить или честно признать неудачу.",
+                _answerUnknown, 46),
+            new SettingRow("Рассказывать, чем вы пользуетесь",
+                "Список часто запускаемых программ уходит вместе с вопросом. Помогает в ответах про ваш же компьютер.",
+                _shareProfile, 46),
+            new SettingRow("", "", forget, 190));
+    }
+
+    private void RefreshBrainStatus()
+    {
+        if (_host is null) { _brainStatus.Text = ""; return; }
+
+        var brain = _host.Brain;
+
+        if (brain.IsReady)
+        {
+            _brainStatus.Text = $"Разговор готов: {brain.Description}";
+            _brainStatus.ForeColor = Theme.Good;
+        }
+        else if (!Brain.ApiKeyStore.HasKey)
+        {
+            _brainStatus.Text = "Ключ не задан — отвечать нечем.";
+            _brainStatus.ForeColor = Theme.TextFaint;
+        }
+        else
+        {
+            _brainStatus.Text = $"Не подключено: {brain.Description}";
+            _brainStatus.ForeColor = Theme.Warn;
+        }
+    }
+
+    private void TestBrain()
+    {
+        if (_host is null) return;
+
+        SetNotice("Проверяю ключ…");
+
+        _ = Task.Run(async () =>
+        {
+            var result = await _host.Brain.TestAsync().ConfigureAwait(false);
+            try { BeginInvoke(() => SetNotice($"Проверка: {result}")); } catch { }
+        });
+    }
+
+    // ---- Обучение ----------------------------------------------------------
+
+    private Control BuildLearningPage()
+    {
+        _learningEnabled = new ToggleSwitch();
+        _keepJournal = new ToggleSwitch();
+        _learnWakeVariants = new ToggleSwitch();
+        _learnAliases = new ToggleSwitch();
+
+        _maxPromptTerms = new SliderField { Minimum = 0, Maximum = 80, Step = 2, Format = v => v < 1 ? "выкл." : $"{v:0}" };
+        _wakeVariantThreshold = new SliderField { Minimum = 2, Maximum = 10, Step = 1, Format = v => $"{v:0} раз" };
+
+        _learningStatus = new Label
+        {
+            AutoSize = false,
+            Height = 64,
+            ForeColor = Theme.Text,
+            Font = Theme.Small,
+            BackColor = Theme.Panel,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var openJournal = new FlatButton("Открыть дневник речи") { Width = 230 };
+        openJournal.Click += (_, _) => OpenFolder(AppPaths.Root);
+
+        var rebuild = new FlatButton("Пересобрать из дневника") { Width = 230 };
+        rebuild.Click += (_, _) =>
+        {
+            _host?.Learning?.RebuildFromJournal();
+            RefreshLearningStatus();
+            SetNotice("Наблюдения пересобраны заново.");
+        };
+
+        var forget = new FlatButton("Забыть всё обо мне") { Width = 230 };
+        forget.Click += (_, _) =>
+        {
+            var answer = MessageBox.Show(this,
+                "Стереть словарь, выученные синонимы и написания имени?\n\n" +
+                "Дневник речи при этом останется — из него всё можно собрать обратно.",
+                "Забыть наблюдения", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+            if (answer != DialogResult.Yes) return;
+
+            _host?.Learning?.Forget();
+            RefreshLearningStatus();
+            SetNotice("Наблюдения стёрты.");
+        };
+
+        return Stack(
+            new SectionTitle("Обучение",
+                "Скажу прямо, потому что вопрос обычно звучит иначе: дообучить саму модель распознавания " +
+                "на домашнем компьютере нельзя — это недели счёта на чужих видеокартах. " +
+                "А вот подсказывать ей ваши слова можно, и на слух разница выходит примерно та же."),
+            _learningStatus,
+            new SettingRow("Наблюдать за речью", "", _learningEnabled, 46),
+            new SectionTitle("Что именно запоминается"),
+            new SettingRow("Слов в подсказке распознаванию",
+                "Ваши частые слова показываются модели перед каждой фразой — так «халдайверс» перестаёт " +
+                "превращаться в «хал драйвер». Больше не всегда лучше: длинный список размывает подсказку.",
+                _maxPromptTerms, 240),
+            new SettingRow("Учить, как вы произносите имя",
+                "Если я не откликнулась, а команда следом была осмысленной, я запомню услышанное написание. " +
+                "После нескольких повторов начну откликаться на него сразу.",
+                _learnWakeVariants, 46),
+            new SettingRow("Сколько повторов, чтобы принять написание",
+                "Меньше — подстроюсь быстрее, но рискую принять за имя случайное слово.",
+                _wakeVariantThreshold, 240),
+            new SettingRow("Учить синонимы из ваших исправлений",
+                "Команда не вышла, вы сказали иначе и получилось — значит, первое и второе про одно и то же. " +
+                "В следующий раз сработает сразу.",
+                _learnAliases, 46),
+            new SectionTitle("Дневник речи"),
+            new SettingRow("Вести дневник",
+                "Файл «речь.jsonl» рядом с настройками: по строке на фразу. Из него всегда можно собрать " +
+                "наблюдения заново — и в него можно просто заглянуть и посмотреть, что я про вас знаю. " +
+                "Это ваша речь, лежащая на диске: выключите, если это лишнее.",
+                _keepJournal, 46),
+            new SettingRow("", "", openJournal, 230),
+            new SettingRow("", "", rebuild, 230),
+            new SettingRow("", "", forget, 230));
+    }
+
+    private void RefreshLearningStatus()
+    {
+        _learningStatus.Text = _host?.Learning?.Describe() ?? "";
+    }
+
     private Control BuildAboutPage()
     {
         var openConfig = new FlatButton("Открыть папку с настройками") { Width = 230 };
@@ -575,6 +978,34 @@ public sealed class SettingsWindow : Form
         _personaColors.Checked = c.Overlay.UsePersonaColors;
         _excludeCapture.Checked = c.Overlay.ExcludeFromCapture;
 
+        _voiceEnabled.Checked = c.Voice.Enabled;
+        _voiceEngine.Value = c.Voice.Engine ?? "auto";
+        _voiceRate.Value = c.Voice.Rate;
+        _voiceVolume.Value = c.Voice.Volume;
+        _speakFailures.Checked = c.Voice.SpeakFailures;
+        _speakConfirmations.Checked = c.Voice.SpeakConfirmations;
+        _suppressMic.Checked = c.Voice.SuppressMicWhileSpeaking;
+        RefreshVoices();
+        RefreshVoiceStatus();
+
+        _brainEnabled.Checked = c.Brain.Enabled;
+        _brainModel.Value = c.Brain.Model ?? "claude-opus-5";
+        _brainMaxTokens.Value = c.Brain.MaxTokens;
+        _followUpSeconds.Value = c.Brain.FollowUpSeconds;
+        _answerUnknown.Checked = c.Brain.AnswerUnknownCommands;
+        _shareProfile.Checked = c.Brain.ShareProfile;
+        _brainStyle.Text = c.Brain.Style ?? "";
+        _apiKey.Text = Brain.ApiKeyStore.HasKey ? Brain.ApiKeyStore.Masked() : "";
+        RefreshBrainStatus();
+
+        _learningEnabled.Checked = c.Learning.Enabled;
+        _keepJournal.Checked = c.Learning.KeepJournal;
+        _maxPromptTerms.Value = c.Learning.MaxPromptTerms;
+        _learnWakeVariants.Checked = c.Learning.LearnWakeVariants;
+        _wakeVariantThreshold.Value = c.Learning.WakeVariantThreshold;
+        _learnAliases.Checked = c.Learning.LearnAliases;
+        RefreshLearningStatus();
+
         _armedSeconds.Value = c.Behavior.ArmedSeconds;
         _searchFallback.Checked = c.Behavior.WebSearchFallback;
         _matchThreshold.Value = c.Behavior.MatchThreshold;
@@ -628,6 +1059,30 @@ public sealed class SettingsWindow : Form
         c.Overlay.TargetFps = (int)_fps.Value;
         c.Overlay.UsePersonaColors = _personaColors.Checked;
         c.Overlay.ExcludeFromCapture = _excludeCapture.Checked;
+
+        c.Voice.Enabled = _voiceEnabled.Checked;
+        c.Voice.Engine = _voiceEngine.Value;
+        c.Voice.Voice = _voiceName.Value;
+        c.Voice.Rate = _voiceRate.Value;
+        c.Voice.Volume = _voiceVolume.Value;
+        c.Voice.SpeakFailures = _speakFailures.Checked;
+        c.Voice.SpeakConfirmations = _speakConfirmations.Checked;
+        c.Voice.SuppressMicWhileSpeaking = _suppressMic.Checked;
+
+        c.Brain.Enabled = _brainEnabled.Checked;
+        c.Brain.Model = _brainModel.Value;
+        c.Brain.MaxTokens = (int)_brainMaxTokens.Value;
+        c.Brain.FollowUpSeconds = (int)_followUpSeconds.Value;
+        c.Brain.AnswerUnknownCommands = _answerUnknown.Checked;
+        c.Brain.ShareProfile = _shareProfile.Checked;
+        c.Brain.Style = _brainStyle.Text.Trim();
+
+        c.Learning.Enabled = _learningEnabled.Checked;
+        c.Learning.KeepJournal = _keepJournal.Checked;
+        c.Learning.MaxPromptTerms = (int)_maxPromptTerms.Value;
+        c.Learning.LearnWakeVariants = _learnWakeVariants.Checked;
+        c.Learning.WakeVariantThreshold = (int)_wakeVariantThreshold.Value;
+        c.Learning.LearnAliases = _learnAliases.Checked;
 
         c.Behavior.ArmedSeconds = (int)_armedSeconds.Value;
         c.Behavior.WebSearchFallback = _searchFallback.Checked;

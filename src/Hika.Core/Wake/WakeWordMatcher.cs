@@ -239,6 +239,33 @@ public sealed class WakeWordMatcher
         return null;
     }
 
+    /// <summary>
+    /// Насколько слово похоже на имя — без порогов, оговорок и списка опасных
+    /// двойников.
+    ///
+    /// Нужно обучению, и только ему. Решение «отзываться или нет» принимает
+    /// <see cref="Match"/> со всеми своими предосторожностями; здесь же
+    /// требуется голая мера сходства, чтобы понять, стоит ли запоминать
+    /// услышанное как ещё одно написание имени.
+    /// </summary>
+    public double Similarity(string token)
+    {
+        var normalized = TextNormalizer.Normalize(token);
+        if (normalized.Length < 2) return 0;
+
+        var keys = Translit.Keys(normalized);
+        double best = 0;
+
+        foreach (var entry in _entries)
+        {
+            var distance = MinDistance(keys, entry.Keys);
+            var score = 1.0 - (double)distance / Math.Max(normalized.Length, entry.Form.Length);
+            if (score > best) best = score;
+        }
+
+        return Math.Max(0, best);
+    }
+
     private static int MinDistance(IReadOnlyList<string> a, IReadOnlyList<string> b)
     {
         var best = int.MaxValue;

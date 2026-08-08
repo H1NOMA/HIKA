@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Hika.Config;
 using Hika.Diagnostics;
+using Hika.Learning;
 using Hika.Nlu;
 
 namespace Hika.Catalog;
@@ -31,6 +32,13 @@ public sealed class AppCatalog
     public int BuiltinCount => _builtin.Count;
     public int InstalledCount => _installed.Count;
     public IReadOnlyList<CatalogEntry> Entries => _all;
+
+    /// <summary>
+    /// Что каталог знает лично про этого человека: выученные синонимы
+    /// и то, чем он пользуется чаще. Может отсутствовать — тогда поиск идёт
+    /// ровно так, как в день установки.
+    /// </summary>
+    public IEntryPrior? Prior { get; set; }
 
     public void Load(HikaConfig config)
     {
@@ -155,18 +163,44 @@ public sealed class AppCatalog
         var tokens = TextNormalizer.Tokenize(phrase);
         if (tokens.Length == 0) return null;
 
+        var snapshot = _all;
+        var prior = Prior;
+
+        // Выученный синоним бьёт любое сходство. Если эту самую фразу уже
+        // связывали с записью — значит, человек однажды показал, что имел
+        // в виду, и переспрашивать сходство больше незачем.
+        if (prior is not null)
+        {
+            var aliasId = prior.AliasTarget(phrase);
+            if (aliasId is not null)
+            {
+                var learned = Array.Find(snapshot, e => e.Id == aliasId);
+                if (learned is not null)
+                {
+                    Log.Debug($"«{phrase}» -> {learned.DisplayName} (выученный синоним)", "catalog");
+                    return new CatalogMatch(learned, 1.0);
+                }
+            }
+        }
+
         var spokenKeys = tokens.Select(Translit.Keys).ToArray();
 
-        var snapshot = _all;
         CatalogEntry? best = null;
         double bestScore = 0;
 
         foreach (var entry in snapshot)
         {
+            // Прибавка за то, что запись уже запускали. Она мала и с потолком:
+            // её дело — разрешить спор двух одинаково похожих названий,
+            // а не перевесить само сходство.
+            var boost = prior?.Boost(entry.Id) ?? 0;
+
             var keys = entry.NameKeys;
             for (int i = 0; i < keys.Length; i++)
             {
                 var score = FuzzyMatch.PhraseSimilarity(spokenKeys, keys[i]) * entry.Weight;
+                if (score > 0.15) score += boost;
+
                 if (score > bestScore)
                 {
                     bestScore = score;

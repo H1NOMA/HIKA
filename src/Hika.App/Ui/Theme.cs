@@ -26,6 +26,9 @@ public static class Theme
     public static readonly Color Good = Color.FromArgb(0x3B, 0xE0, 0x7E);
     public static readonly Color Danger = Color.FromArgb(0xFF, 0x5A, 0x4E);
 
+    /// <summary>Работает, но не так, как задумано, — жёлтый между зелёным и красным.</summary>
+    public static readonly Color Warn = Color.FromArgb(0xFF, 0xC2, 0x4B);
+
     // Значения по умолчанию — до того, как станет известна выбранная личность.
     public static Color Accent { get; private set; } = Color.FromArgb(0x3B, 0x9B, 0xFF);
     public static Color AccentDim { get; private set; } = Color.FromArgb(0x14, 0x32, 0x4F);

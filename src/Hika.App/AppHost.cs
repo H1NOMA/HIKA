@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using Hika.Audio;
+using Hika.Brain;
 using Hika.Catalog;
 using Hika.Config;
 using Hika.Diagnostics;
+using Hika.Learning;
 using Hika.Nlu;
 using Hika.Overlay;
 using Hika.Skills;
+using Hika.Speech;
 using Hika.Stt;
 using Hika.Vad;
 using Hika.Wake;
@@ -48,6 +51,10 @@ public sealed class AppHost : IDisposable
     private WhisperRecognizer _probeRecognizer;
     private bool _probeSharesMain;
 
+    private readonly VoiceService _voice = new();
+    private readonly ClaudeBrain _brain = new();
+    private LearningEngine? _learning;
+
     private IVoiceActivityDetector? _vad;
     private UtteranceSegmenter? _segmenter;
     private WakeWordMatcher? _wakeMatcher;
@@ -84,6 +91,10 @@ public sealed class AppHost : IDisposable
     public string VadDescription => _vad?.Name ?? "не запущен";
     public int CatalogSize => _catalog.Count;
 
+    public VoiceService Voice => _voice;
+    public ClaudeBrain Brain => _brain;
+    public LearningEngine? Learning => _learning;
+
     /// <summary>Текущая громкость голоса, 0..1 — для полоски уровня в настройках.</summary>
     public double CurrentLevel => _microphone.Muted ? 0 : _levelMeter.Normalized;
 
@@ -105,9 +116,17 @@ public sealed class AppHost : IDisposable
 
         Log.Info("=== HIKA запускается ===", "host");
 
+        // Наблюдения о человеке поднимаем первыми: от них зависит и словарь
+        // распознавания, и поиск по каталогу, и разговор.
+        _learning = new LearningEngine(config.Learning);
+        _learning.Start();
+        _learning.WakeVariantLearned += OnWakeVariantLearned;
+        _learning.VocabularyChanged += OnVocabularyChanged;
+
+        _catalog.Prior = _learning;
         _catalog.Load(config);
         _router = new SkillRouter(_catalog);
-        _wakeMatcher = new WakeWordMatcher(config.Wake);
+        _wakeMatcher = new WakeWordMatcher(WithLearnedVariants(config.Wake));
 
         if (config.Overlay.Enabled) _overlay.Start(config.Overlay, config.Persona);
 
@@ -133,6 +152,35 @@ public sealed class AppHost : IDisposable
 
         _microphone.FrameReady += OnAudioFrame;
         _microphone.Muted = config.Behavior.StartMuted;
+
+        // Голос и разговор — тоже в фоне: перечисление голосов и проверка ключа
+        // упираются в систему и в сеть, а до трея дело должно дойти сразу.
+        _voice.SpeakingChanged += OnSpeakingChanged;
+        _voice.LevelChanged += level => _overlay.SetLevel(level);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _voice.StartAsync(config.Voice, config.Speech.Language, _shutdown.Token).ConfigureAwait(false);
+
+                if (config.Voice.Enabled && _voice.SoundsRobotic)
+                {
+                    StartupProblem?.Invoke(
+                        "Голос будет механическим: нейроголоса в Windows не установлены. " +
+                        "Ставятся один раз: Параметры → Время и язык → Речь → Управление голосами → " +
+                        "Добавить голоса → русский. Либо в настройках HIKA выберите «нейроголоса Microsoft».");
+                }
+            }
+            catch (Exception ex) { Log.Error("озвучка не поднялась", ex, "host"); }
+
+            try
+            {
+                _brain.ChunkReady += chunk => _voice.Say(chunk);
+                _brain.Configure(config.Brain, Personas.ById(config.Persona).Name);
+            }
+            catch (Exception ex) { Log.Error("разговор не поднялся", ex, "host"); }
+        });
 
         // Всё тяжёлое — в фоне: программа должна оказаться в трее сразу,
         // а не через минуту скачивания моделей.
@@ -201,7 +249,16 @@ public sealed class AppHost : IDisposable
             }
 
             var words = _wakeMatcher?.Words ?? new List<string> { "ави", "хика" };
-            if (!await _recognizer.LoadAsync(modelPath, config.Speech, words).ConfigureAwait(false))
+
+            // Личный словарь — то самое «обучение». Он подкладывается модели
+            // как подсказка перед каждой фразой, и чем дольше человек говорит
+            // с программой, тем точнее она слышит именно его слова.
+            var vocabulary = _learning?.Vocabulary() ?? Array.Empty<string>();
+            if (vocabulary.Count > 0)
+                Log.Info($"свой словарь: {string.Join(", ", vocabulary.Take(10))}" +
+                         (vocabulary.Count > 10 ? $" и ещё {vocabulary.Count - 10}" : ""), "host");
+
+            if (!await _recognizer.LoadAsync(modelPath, config.Speech, words, vocabulary).ConfigureAwait(false))
             {
                 StartupProblem?.Invoke("Модель распознавания не загрузилась. Подробности в журнале.");
                 return;
@@ -276,6 +333,87 @@ public sealed class AppHost : IDisposable
         }
     }
 
+    // ---- Обучение ----------------------------------------------------------
+
+    /// <summary>
+    /// Досыпает в слова пробуждения написания, выученные из собственных
+    /// наблюдений. Настройки при этом не трогаются: выученное живёт
+    /// в профиле, а не в файле, который человек правит руками.
+    /// </summary>
+    private WakeConfig WithLearnedVariants(WakeConfig source)
+    {
+        var learned = _learning?.WakeVariants() ?? Array.Empty<string>();
+        if (learned.Count == 0) return source;
+
+        var extra = new List<string>(source.ExtraVariants ?? new List<string>());
+        foreach (var variant in learned)
+        {
+            if (!extra.Contains(variant, StringComparer.OrdinalIgnoreCase)) extra.Add(variant);
+        }
+
+        Log.Info($"к имени добавлены выученные написания: {string.Join(", ", learned)}", "host");
+
+        return new WakeConfig
+        {
+            Words = source.Words,
+            ExtraVariants = extra,
+            Tolerance = source.Tolerance,
+            StrictBelowScore = source.StrictBelowScore,
+            AllowAnywhere = source.AllowAnywhere,
+            RespondToBoth = source.RespondToBoth,
+        };
+    }
+
+    private void OnWakeVariantLearned(string variant)
+    {
+        try
+        {
+            _wakeMatcher = new WakeWordMatcher(WithLearnedVariants(_configStore.Current.Wake));
+            StartupProblem?.Invoke($"Вы зовёте меня «{variant}» — я запомнила это написание и теперь буду откликаться на него сразу.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("новое написание имени не применилось", ex, "host");
+        }
+    }
+
+    private void OnVocabularyChanged(IReadOnlyList<string> vocabulary)
+    {
+        // Пересборка встаёт в ту же очередь, что и распознавание, поэтому
+        // не сейчас: если человек прямо сейчас говорит, ждать он будет её.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var words = _wakeMatcher?.Words;
+                await _recognizer.UpdateVocabularyAsync(vocabulary, words).ConfigureAwait(false);
+            }
+            catch (Exception ex) { Log.Error("словарь распознавания не обновился", ex, "host"); }
+        });
+    }
+
+    // ---- Голос -------------------------------------------------------------
+
+    private void OnSpeakingChanged(bool speaking)
+    {
+        if (!_configStore.Current.Voice.SuppressMicWhileSpeaking) return;
+
+        _microphone.Suppressed = speaking;
+
+        if (speaking)
+        {
+            _overlay.SetState(OverlayState.Listening);
+            return;
+        }
+
+        // Обрывок собственного голоса, успевший попасть во вход, не должен
+        // уехать в распознавание — сбрасываем накопленное.
+        _segmenter?.Reset();
+        _levelMeter.Reset();
+
+        if (State != HostState.Armed) _overlay.SetState(OverlayState.Hidden);
+    }
+
     private void HookSegmenter()
     {
         var segmenter = _segmenter;
@@ -294,7 +432,10 @@ public sealed class AppHost : IDisposable
         var span = frame.AsSpan(0, count);
 
         _levelMeter.Process(span);
-        _overlay.SetLevel(_levelMeter.Normalized);
+
+        // Пока говорит сама, каймой правит её собственный голос — иначе два
+        // источника громкости писали бы в одно поле по очереди, и свет дёргался бы.
+        if (!_voice.IsSpeaking) _overlay.SetLevel(_levelMeter.Normalized);
 
         _segmenter?.Process(span);
 
@@ -435,6 +576,10 @@ public sealed class AppHost : IDisposable
 
         var wasArmed = State == HostState.Armed && DateTime.UtcNow <= _armedUntil;
 
+        // Человек заговорил, пока мы отвечаем, — значит, слушать надо его,
+        // а не договаривать своё.
+        if (_voice.IsSpeaking) _voice.Hush();
+
         SetState(HostState.Working);
         _overlay.SetState(wasArmed ? OverlayState.Thinking : OverlayState.Sensing);
 
@@ -470,7 +615,10 @@ public sealed class AppHost : IDisposable
         }
         else
         {
-            // Обращались не к нам. Молча гаснем.
+            // Обращались не к нам. Молча гаснем — но сначала проверяем,
+            // не наше ли это имя, просто расслышанное как что-то другое.
+            NoteWakeNearMiss(result.Text);
+
             Log.Debug("обращение не к нам, пропускаю", "host");
             ResetToIdle();
             return;
@@ -486,11 +634,41 @@ public sealed class AppHost : IDisposable
 
         _overlay.SetState(OverlayState.Thinking);
 
+        var journal = new JournalEntry
+        {
+            Text = result.Text,
+            WakeScore = match.Score,
+            RecognitionMs = (int)result.Elapsed.TotalMilliseconds,
+        };
+
         var intent = CommandParser.Parse(command);
         Log.Info($"команда: «{command}» -> {intent}", "host");
 
+        // Явный вопрос в каталог даже не заглядывает: «расскажи про Steam» —
+        // это просьба рассказать, и потратить на неё поиск по тысяче ярлыков
+        // значит подарить человеку лишнюю задержку ради заведомо пустого дела.
+        if (Conversation.IsDefinitelyTalk(command) && CanTalk())
+        {
+            journal.Intent = "разговор";
+            journal.Success = Talk(command);
+            Record(journal, command);
+            FinishTalk(journal.Success, stopwatch);
+            return;
+        }
+
         if (!intent.IsActionable)
         {
+            if (CanTalk() && Conversation.MightBeTalk(command))
+            {
+                journal.Intent = "разговор";
+                journal.Success = Talk(command);
+                Record(journal, command);
+                FinishTalk(journal.Success, stopwatch);
+                return;
+            }
+
+            journal.Intent = "не разобрано";
+            Record(journal, command);
             Finish(false, stopwatch);
             return;
         }
@@ -509,7 +687,139 @@ public sealed class AppHost : IDisposable
         var outcome = _router.Execute(intent, behavior);
         Log.Info($"итог: {(outcome.Success ? "выполнено" : "не вышло")} — {outcome.Description} (всего {stopwatch.ElapsedMilliseconds} мс)", "host");
 
+        journal.Intent = outcome.Success ? outcome.Description : intent.ToString();
+        journal.EntryId = outcome.EntryId;
+        journal.Success = outcome.Success;
+
+        // Команда не нашлась. Раньше здесь была красная вспышка и молчание;
+        // теперь можно хотя бы ответить словами — человек чаще спрашивает,
+        // чем командует, и принимать всякий вопрос за неудачный запуск глупо.
+        if (!outcome.Success && CanTalk() && _configStore.Current.Brain.AnswerUnknownCommands
+            && Conversation.MightBeTalk(command))
+        {
+            journal.Intent = "разговор";
+            journal.Success = Talk(command);
+            Record(journal, command);
+            FinishTalk(journal.Success, stopwatch);
+            return;
+        }
+
+        Record(journal, command);
+
+        if (!outcome.Success) SayFailure(outcome.Description);
+        else if (_configStore.Current.Voice.SpeakConfirmations) _voice.Say(outcome.Description);
+
         Finish(outcome.Success, stopwatch);
+    }
+
+    // ---- Разговор ----------------------------------------------------------
+
+    private bool CanTalk() => _brain.IsReady && _configStore.Current.Brain.Enabled;
+
+    /// <summary>
+    /// Отдаёт фразу в разговор. Ответ произносится по кускам прямо во время
+    /// чтения — сюда возвращается только то, вышло ли вообще.
+    /// </summary>
+    private bool Talk(string question)
+    {
+        Log.Info($"в разговор: «{question}»", "host");
+        _overlay.SetState(OverlayState.Thinking);
+
+        try
+        {
+            var answer = _brain.AskAsync(question, _learning?.Profile, _shutdown.Token)
+                .GetAwaiter().GetResult();
+
+            if (string.IsNullOrWhiteSpace(answer))
+            {
+                SayFailure("не получилось ответить");
+                return false;
+            }
+
+            Log.Info($"ответила: «{Shorten(answer)}»", "host");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("разговор сорвался", ex, "host");
+            SayFailure("не получилось ответить");
+            return false;
+        }
+    }
+
+    private static string Shorten(string text)
+        => text.Length <= 120 ? text : text[..117] + "…";
+
+    private void SayFailure(string what)
+    {
+        if (!_configStore.Current.Voice.SpeakFailures) return;
+        _voice.Say(what);
+    }
+
+    /// <summary>
+    /// Заканчивает разговорный круг.
+    ///
+    /// В отличие от команды, здесь мы остаёмся слушать: разговор из одной
+    /// реплики разговором не является, и требовать имя перед каждым «а почему?»
+    /// значит его убить.
+    /// </summary>
+    private void FinishTalk(bool success, Stopwatch stopwatch)
+    {
+        Log.Debug($"разговорный круг за {stopwatch.ElapsedMilliseconds} мс", "host");
+
+        if (!success)
+        {
+            Finish(false, stopwatch);
+            return;
+        }
+
+        _armedUntil = DateTime.UtcNow.AddSeconds(
+            Math.Max(1, _configStore.Current.Brain.FollowUpSeconds));
+
+        SetState(HostState.Armed);
+        _overlay.SetState(OverlayState.Listening);
+    }
+
+    // ---- Наблюдения --------------------------------------------------------
+
+    private void Record(JournalEntry entry, string command)
+    {
+        try { _learning?.Observe(entry, command); }
+        catch (Exception ex) { Log.Error("наблюдение не записалось", ex, "host"); }
+    }
+
+    /// <summary>
+    /// Имя не узнано, но фраза похожа на обращение.
+    ///
+    /// Это самый ценный и самый упускаемый сигнал. Человек позвал, программа
+    /// не откликнулась — и обычно на этом всё: никто не узнаёт, что имя
+    /// прозвучало. Здесь мы смотрим, не похоже ли первое слово на имя
+    /// и не выглядит ли остаток командой. Если да — запоминаем написание,
+    /// и после нескольких повторов программа начнёт откликаться сама.
+    /// </summary>
+    private void NoteWakeNearMiss(string text)
+    {
+        if (_learning is null || _wakeMatcher is null) return;
+
+        var tokens = TextNormalizer.Tokenize(text);
+        if (tokens.Length < 2) return;
+
+        var similarity = _wakeMatcher.Similarity(tokens[0]);
+        if (similarity < 0.3) return;
+
+        // Проверяем, выглядит ли остаток осмысленной командой. Без этого
+        // в написания имени уедет каждое похожее слово из случайного разговора.
+        var rest = string.Join(' ', tokens[1..]);
+        var intent = CommandParser.Parse(rest);
+
+        var looksLikeCommand = intent.ExplicitVerb
+            || (intent.Kind != IntentKind.Launch && intent.IsActionable)
+            || _catalog.Resolve(rest, 0.85) is not null;
+
+        if (!looksLikeCommand) return;
+
+        Log.Debug($"похоже, звали меня: «{tokens[0]}» (сходство {similarity:F2}), команда «{rest}»", "host");
+        _learning.ObserveWakeAttempt(tokens[0], similarity);
     }
 
     private int _slowRecognitions;
@@ -651,9 +961,25 @@ public sealed class AppHost : IDisposable
         {
             _microphone.Gain = config.Audio.Gain;
             _segmenter?.Reconfigure(config.Audio, config.Speech);
-            _wakeMatcher = new WakeWordMatcher(config.Wake);
+            _wakeMatcher = new WakeWordMatcher(WithLearnedVariants(config.Wake));
+            _learning?.Reconfigure(config.Learning);
             _catalog.Load(config);
             _router = new SkillRouter(_catalog);
+
+            // Голос и разговор — в фоне: перечисление голосов лезет в систему,
+            // а окно настроек должно закрыться сразу, а не через секунду.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _voice.StartAsync(config.Voice, config.Speech.Language, _shutdown.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) { Log.Error("озвучка не перенастроилась", ex, "host"); }
+
+                try { _brain.Configure(config.Brain, Personas.ById(config.Persona).Name); }
+                catch (Exception ex) { Log.Error("разговор не перенастроился", ex, "host"); }
+            });
 
             // Свечение пересобираем целиком: цвета, толщина и набор мониторов
             // задаются при создании окон, и подменить их на лету дешевле всего
@@ -682,6 +1008,13 @@ public sealed class AppHost : IDisposable
         try { _worker?.Join(1500); } catch { }
 
         try { _reindexTimer?.Dispose(); } catch { }
+        try { _voice.Dispose(); } catch { }
+        try { _brain.Dispose(); } catch { }
+
+        // Профиль сбрасывается на диск здесь — до этого он живёт в памяти
+        // и пишется отложенно, чтобы не тревожить диск на каждое слово.
+        try { _learning?.Dispose(); } catch { }
+
         try { _overlay.Dispose(); } catch { }
         try { _recognizer.Dispose(); } catch { }
         if (!_probeSharesMain) { try { _probeOwned.Dispose(); } catch { } }

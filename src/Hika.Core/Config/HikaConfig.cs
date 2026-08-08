@@ -19,6 +19,9 @@ public sealed class HikaConfig
     public WakeConfig Wake { get; set; } = new();
     public OverlayConfig Overlay { get; set; } = new();
     public BehaviorConfig Behavior { get; set; } = new();
+    public VoiceConfig Voice { get; set; } = new();
+    public BrainConfig Brain { get; set; } = new();
+    public LearningConfig Learning { get; set; } = new();
 
     /// <summary>Свои команды поверх встроенного каталога: фраза -> что открыть.</summary>
     public List<CustomEntry> Custom { get; set; } = new();
@@ -273,6 +276,122 @@ public sealed class BehaviorConfig
 
     /// <summary>Уровень журнала: trace | debug | info | warn | error</summary>
     public string LogLevel { get; set; } = "info";
+}
+
+public sealed class VoiceConfig
+{
+    /// <summary>
+    /// Отвечать голосом.
+    ///
+    /// Изначально задумывалось наоборот: ассистент действует и молчит. Голос
+    /// добавлен по прямой просьбе — но привычка остаётся правильной. Молчание
+    /// при запуске программы информативнее, чем «открываю Steam», сказанное
+    /// поверх уже открывающегося Steam. Поэтому вслух идут ответы на вопросы,
+    /// а действия по-прежнему говорят сами за себя.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// auto | windows | edge | off
+    ///
+    /// «auto» выбирает лучшее из доступного, не выходя в интернет без нужды:
+    /// сначала ищет нейроголоса, установленные в самой Windows, и только если
+    /// их нет — берёт то, что есть. Голоса Microsoft из интернета («edge»)
+    /// звучат лучше всего, но включать их надо осознанно: произносимый текст
+    /// уходит на серверы Microsoft.
+    /// </summary>
+    public string Engine { get; set; } = "auto";
+
+    /// <summary>Часть названия голоса. Пусто — выбрать лучший доступный. Список: Hika.exe --list-voices</summary>
+    public string Voice { get; set; } = "";
+
+    /// <summary>Скорость речи, 0.5–2.0. Единица — обычная.</summary>
+    public double Rate { get; set; } = 1.0;
+
+    /// <summary>Громкость, 0–1.</summary>
+    public double Volume { get; set; } = 0.85;
+
+    /// <summary>Проговаривать вслух, что команда не вышла.</summary>
+    public bool SpeakFailures { get; set; } = true;
+
+    /// <summary>Проговаривать вслух подтверждение запуска. По умолчанию нет — действие видно и так.</summary>
+    public bool SpeakConfirmations { get; set; } = false;
+
+    /// <summary>
+    /// Глушить микрофон, пока говорит сама.
+    ///
+    /// Обязательно, если звук идёт из колонок: иначе ассистент услышит
+    /// собственный голос, распознает его как речь и в худшем случае ответит
+    /// сам себе. В наушниках можно выключить.
+    /// </summary>
+    public bool SuppressMicWhileSpeaking { get; set; } = true;
+}
+
+public sealed class BrainConfig
+{
+    /// <summary>
+    /// Отвечать на вопросы через Claude.
+    ///
+    /// Выключено, пока нет ключа: без него включать нечего. Ключ хранится
+    /// не здесь — см. окно настроек, раздел «Разговор».
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    public string Model { get; set; } = "claude-opus-5";
+
+    /// <summary>
+    /// Предел длины ответа.
+    ///
+    /// Маленький намеренно: ответ произносится вслух, а слушать вслух даже
+    /// две минуты подряд невыносимо. Если нужно подробно — лучше спросить
+    /// подробнее, чем ждать, пока договорит.
+    /// </summary>
+    public int MaxTokens { get; set; } = 700;
+
+    /// <summary>Сколько последних реплик помнить в разговоре.</summary>
+    public int HistoryTurns { get; set; } = 12;
+
+    /// <summary>Если команда не нашлась — попробовать ответить словами вместо красной вспышки.</summary>
+    public bool AnswerUnknownCommands { get; set; } = true;
+
+    /// <summary>Сколько секунд после ответа слушать продолжение без имени.</summary>
+    public int FollowUpSeconds { get; set; } = 15;
+
+    /// <summary>Что дописать к описанию характера. Пусто — как есть.</summary>
+    public string Style { get; set; } = "";
+
+    /// <summary>Рассказывать Claude, чем человек обычно пользуется. Помогает в ответах про его же компьютер.</summary>
+    public bool ShareProfile { get; set; } = true;
+}
+
+public sealed class LearningConfig
+{
+    /// <summary>Наблюдать за речью и подстраиваться.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Вести дневник речи — файл со всем услышанным.</summary>
+    public bool KeepJournal { get; set; } = true;
+
+    /// <summary>
+    /// Сколько своих слов подкладывать распознаванию как подсказку.
+    ///
+    /// Больше — не всегда лучше: затравка соревнуется за внимание модели
+    /// со всем остальным, и словарь из двухсот слов размывает подсказку
+    /// вместо того, чтобы её усилить.
+    /// </summary>
+    public int MaxPromptTerms { get; set; } = 24;
+
+    /// <summary>Учить новые написания имени.</summary>
+    public bool LearnWakeVariants { get; set; } = true;
+
+    /// <summary>Сколько раз услышать одно и то же написание, чтобы принять его.</summary>
+    public int WakeVariantThreshold { get; set; } = 3;
+
+    /// <summary>Учить синонимы из пары «не вышло — вышло».</summary>
+    public bool LearnAliases { get; set; } = true;
+
+    /// <summary>Предел прибавки за частый запуск, 0..1. Больше 0.15 ставить не стоит: перебьёт само сходство.</summary>
+    public double MaxBoost { get; set; } = 0.10;
 }
 
 public sealed class CustomEntry

@@ -142,6 +142,53 @@ public static class SelfTest
         }
         Line();
 
+        // ---- Голос, разговор, наблюдения ----
+        Line("── Голос ──────────────────────────────────────────────────────");
+        if (!config.Voice.Enabled)
+        {
+            Line("  озвучка выключена в настройках");
+        }
+        else
+        {
+            using var voice = new Speech.VoiceService();
+            await voice.StartAsync(config.Voice, config.Speech.Language).ConfigureAwait(false);
+
+            Line($"  движок: {voice.Description}");
+
+            var all = await voice.ListAllVoicesAsync().ConfigureAwait(false);
+            var neural = all.Count(v => v.IsNeural);
+            Line($"  голосов найдено: {all.Count}, из них нейро: {neural}");
+
+            if (neural == 0)
+            {
+                Line("  ВНИМАНИЕ: нейроголосов нет — звук будет механическим.");
+                Line("  Параметры -> Время и язык -> Речь -> Управление голосами -> Добавить голоса");
+            }
+        }
+        Line();
+
+        Line("── Разговор ───────────────────────────────────────────────────");
+        Line($"  включён: {(config.Brain.Enabled ? "да" : "нет")}");
+        Line($"  ключ: {Brain.ApiKeyStore.Masked()}");
+        Line($"  модель: {config.Brain.Model}");
+        Line();
+
+        Line("── Что я о вас знаю ───────────────────────────────────────────");
+        if (!config.Learning.Enabled)
+        {
+            Line("  наблюдения выключены в настройках");
+        }
+        else
+        {
+            using var learning = new Learning.LearningEngine(config.Learning);
+            learning.Start();
+            Line("  " + learning.Describe());
+
+            var vocabulary = learning.Vocabulary();
+            if (vocabulary.Count > 0) Line($"  словарь подсказки: {string.Join(", ", vocabulary)}");
+        }
+        Line();
+
         // ---- Живой микрофон ----
         var seconds = ParseSeconds(args, 6);
         if (seconds > 0)

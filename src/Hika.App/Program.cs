@@ -3,6 +3,7 @@ using System.Windows.Forms;
 using Hika.Audio;
 using Hika.Config;
 using Hika.Diagnostics;
+using Hika.Speech;
 using Hika.Startup;
 using Hika.Tray;
 using Hika.Ui;
@@ -20,7 +21,7 @@ internal static class Program
 
         var isCommandLine = args.Any(a =>
             a is "--diagnose" or "-d" or "--listen" or "-l" or "--list-audio"
-                 or "--help" or "-h" or "--version"
+                 or "--help" or "-h" or "--version" or "--list-voices" or "--say"
                  or "--enable-autostart" or "--disable-autostart" or "--test-overlay");
 
         if (isCommandLine) AttachToParentConsole();
@@ -63,6 +64,82 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// Показывает, чем программа может говорить.
+    ///
+    /// Нужно потому, что «голос звучит механически» и «голос вообще не звучит» —
+    /// разные беды с разными решениями, а отличить их без списка нельзя.
+    /// Нейроголоса отмечены отдельно: если их в списке нет, дальше говорить
+    /// не о чем, пока человек их не поставит.
+    /// </summary>
+    private static int ListVoices(HikaConfig config)
+    {
+        Console.WriteLine(BuildInfo.Describe());
+        Console.WriteLine();
+
+        using var voice = new VoiceService();
+        voice.StartAsync(config.Voice, config.Speech.Language).GetAwaiter().GetResult();
+
+        var voices = voice.ListAllVoicesAsync().GetAwaiter().GetResult();
+
+        if (voices.Count == 0)
+        {
+            Console.WriteLine("Голосов не нашлось вовсе. Такое бывает на урезанных сборках Windows —");
+            Console.WriteLine("тогда остаются только нейроголоса Microsoft через интернет: включите их");
+            Console.WriteLine("в настройках, раздел «Голос».");
+            return 1;
+        }
+
+        Console.WriteLine("Голоса, доступные для озвучки:");
+        foreach (var item in voices)
+            Console.WriteLine($"  {(item.IsNeural ? "★" : " ")} {item.Name}  [{item.Language}]");
+
+        Console.WriteLine();
+        Console.WriteLine($"Сейчас выбран: {voice.Description}");
+
+        if (!voices.Any(v => v.IsNeural))
+        {
+            Console.WriteLine();
+            Console.WriteLine("Нейроголосов (★) в системе нет — поэтому звук режет ухо.");
+            Console.WriteLine("Ставятся один раз: Параметры → Время и язык → Речь →");
+            Console.WriteLine("Управление голосами → Добавить голоса → русский.");
+            Console.WriteLine("Нужен тот, у кого в названии есть «Natural».");
+        }
+
+        return 0;
+    }
+
+    /// <summary>Произносит переданное — проверка озвучки без микрофона и без модели.</summary>
+    private static int SayFromCommandLine(string[] args, HikaConfig config)
+    {
+        var index = Array.IndexOf(args, "--say");
+        var text = index >= 0 && index + 1 < args.Length
+            ? string.Join(' ', args[(index + 1)..])
+            : "Проверка связи. Вот так я звучу.";
+
+        using var voice = new VoiceService();
+        voice.StartAsync(config.Voice, config.Speech.Language).GetAwaiter().GetResult();
+
+        if (!voice.IsReady)
+        {
+            Console.WriteLine($"Говорить нечем: {voice.Description}");
+            return 1;
+        }
+
+        Console.WriteLine($"Голос: {voice.Description}");
+        Console.WriteLine($"Говорю: «{text}»");
+
+        voice.Say(text);
+
+        // Ждём, пока договорит: очередь живёт в фоновом потоке, а процесс
+        // иначе закончится раньше первого звука.
+        while (voice.IsSpeaking || !voice.IsReady) Thread.Sleep(50);
+        Thread.Sleep(400);
+        while (voice.IsSpeaking) Thread.Sleep(50);
+
+        return 0;
+    }
+
     private static int Dispatch(string[] args, ConfigStore store, HikaConfig config)
     {
         if (args.Contains("--help") || args.Contains("-h")) return PrintHelp();
@@ -80,6 +157,9 @@ internal static class Program
             Console.WriteLine("Чтобы выбрать другой, впишите часть его имени в audio.device в config.json.");
             return 0;
         }
+
+        if (args.Contains("--list-voices")) return ListVoices(config);
+        if (args.Contains("--say")) return SayFromCommandLine(args, config);
 
         if (args.Contains("--enable-autostart"))
         {
@@ -165,7 +245,8 @@ internal static class Program
                     },
                     onLiveListen: () => LaunchInConsole(tray, "--listen"),
                     onDiagnostics: () => LaunchInConsole(tray, "--diagnose"),
-                    onTestOverlay: () => host.TestOverlay());
+                    onTestOverlay: () => host.TestOverlay(),
+                    host: host);
             }
 
             return settings;
@@ -338,6 +419,8 @@ internal static class Program
               --diagnose, -d        проверить всю цепочку и сохранить отчёт
               --seconds N           сколько секунд записывать при проверке (по умолчанию 6)
               --list-audio          показать доступные микрофоны
+              --list-voices         показать голоса для озвучки (★ — нейроголоса)
+              --say ТЕКСТ           произнести текст и выйти: проверка голоса
               --enable-autostart    запускать вместе с Windows
               --disable-autostart   не запускать вместе с Windows
               --version             версия

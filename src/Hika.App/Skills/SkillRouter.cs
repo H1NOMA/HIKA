@@ -57,7 +57,7 @@ public sealed class SkillRouter
         var threshold = explicitVerb ? behavior.MatchThreshold * 0.78 : behavior.MatchThreshold;
 
         var match = _catalog.Resolve(phrase, threshold);
-        if (match is not null) return Launcher.Launch(match.Entry);
+        if (match is not null) return Launcher.Launch(match.Entry).From(match.Entry);
 
         // Похоже на адрес сайта — открываем как есть.
         if (LooksLikeDomain(phrase))

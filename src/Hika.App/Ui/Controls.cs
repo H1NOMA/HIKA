@@ -326,6 +326,10 @@ public sealed class TextField : Control
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public string Placeholder { get => _box.PlaceholderText; set => _box.PlaceholderText = value; }
 
+    /// <summary>Скрывать содержимое точками — для ключей и паролей.</summary>
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Secret { get => _box.UseSystemPasswordChar; set => _box.UseSystemPasswordChar = value; }
+
     public TextField()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint

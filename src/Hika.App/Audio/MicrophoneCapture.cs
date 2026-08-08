@@ -29,6 +29,7 @@ public sealed class MicrophoneCapture : IDisposable
 
     private volatile bool _running;
     private volatile bool _muted;
+    private volatile bool _suppressed;
     private volatile bool _restartRequested;
 
     private float _gain = 1.0f;
@@ -57,6 +58,19 @@ public sealed class MicrophoneCapture : IDisposable
             _muted = value;
             Log.Info(value ? "микрофон выключен" : "микрофон включён", "audio");
         }
+    }
+
+    /// <summary>
+    /// Временное заглушение — на то время, пока ассистент говорит сам.
+    ///
+    /// Отдельно от <see cref="Muted"/> намеренно: то выключил человек, и трогать
+    /// его нельзя. Если бы озвучка пользовалась тем же переключателем, она
+    /// включала бы микрофон, который человек только что выключил.
+    /// </summary>
+    public bool Suppressed
+    {
+        get => _suppressed;
+        set => _suppressed = value;
     }
 
     public float Gain
@@ -264,7 +278,7 @@ public sealed class MicrophoneCapture : IDisposable
                 // рассчитывают на постоянный размер окна.
                 if (read < frame.Length) Array.Clear(frame, read, frame.Length - read);
 
-                if (_muted)
+                if (_muted || _suppressed)
                 {
                     Array.Clear(frame, 0, frame.Length);
                 }

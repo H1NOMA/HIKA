@@ -6,8 +6,19 @@ namespace Hika.Skills;
 
 public sealed record SkillResult(bool Success, string Description)
 {
+    /// <summary>
+    /// Что именно запустили — идентификатор записи каталога.
+    ///
+    /// Нужно обучению: чтобы связать неудачную формулировку с удавшейся,
+    /// надо знать, чем именно кончилась вторая. Пусто для всего, что
+    /// каталога не касается — громкости, скриншотов, поиска.
+    /// </summary>
+    public string EntryId { get; init; } = "";
+
     public static SkillResult Ok(string what) => new(true, what);
     public static SkillResult Fail(string why) => new(false, why);
+
+    public SkillResult From(CatalogEntry entry) => this with { EntryId = entry.Id };
 }
 
 /// <summary>
