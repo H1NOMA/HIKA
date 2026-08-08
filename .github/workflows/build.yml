@@ -48,3 +48,23 @@ jobs:
           name: hika-win-x64
           path: artifacts/hika
           retention-days: 14
+
+      # Вариант с ускорением на видеокарте. Vulkan берут и NVIDIA, и AMD,
+      # и встроенная графика Intel — на процессоре крупные модели считают
+      # дольше, чем длится сама речь, и это единственный способ получить
+      # и точность, и скорость сразу.
+      #
+      # Шаг помечен как необязательный: пакет с Vulkan может не собраться
+      # на очередной версии, и это не повод ронять основную сборку.
+      - name: Собрать вариант с Vulkan
+        id: vulkan
+        continue-on-error: true
+        run: dotnet publish src/Hika.App/Hika.App.csproj -c Release -o artifacts/hika-vulkan -p:HikaVulkan=true -p:SourceRevisionId=${{ github.sha }}
+
+      - name: Выложить сборку с Vulkan
+        if: steps.vulkan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hika-win-x64-vulkan
+          path: artifacts/hika-vulkan
+          retention-days: 14

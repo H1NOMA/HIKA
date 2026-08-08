@@ -81,10 +81,12 @@ public static class WhisperModelProvider
     public static string ResolveDirectory(SpeechConfig cfg)
         => string.IsNullOrWhiteSpace(cfg.ModelDirectory) ? AppPaths.DefaultModelDirectory : cfg.ModelDirectory;
 
-    private static ModelChoice[] Candidates(SpeechConfig cfg)
+    private static ModelChoice[] Candidates(SpeechConfig cfg) => Candidates(cfg.Model, cfg.Quantization);
+
+    private static ModelChoice[] Candidates(string? modelName, string? quantization)
     {
-        var model = (cfg.Model ?? "small").Trim().ToLowerInvariant().Replace("-", "").Replace("_", "");
-        var quant = (cfg.Quantization ?? "none").Trim().ToLowerInvariant();
+        var model = (modelName ?? "small").Trim().ToLowerInvariant().Replace("-", "").Replace("_", "");
+        var quant = (quantization ?? "none").Trim().ToLowerInvariant();
 
         if (quant is not ("none" or ""))
         {
@@ -95,15 +97,17 @@ public static class WhisperModelProvider
 
         if (Variants.TryGetValue(model, out var plain)) return plain;
 
-        Log.Warn($"модель «{cfg.Model}» неизвестна, беру small", "stt");
+        Log.Warn($"модель «{modelName}» неизвестна, беру small", "stt");
         return Variants["small:q5_0"];
     }
 
     /// <summary>Путь к уже скачанной модели или null.</summary>
-    public static string? FindLocal(SpeechConfig cfg)
+    public static string? FindLocal(SpeechConfig cfg) => FindLocal(cfg, cfg.Model);
+
+    public static string? FindLocal(SpeechConfig cfg, string? modelName)
     {
         var dir = ResolveDirectory(cfg);
-        foreach (var c in Candidates(cfg))
+        foreach (var c in Candidates(modelName, cfg.Quantization))
         {
             var path = Path.Combine(dir, c.FileName);
             if (File.Exists(path) && new FileInfo(path).Length >= c.MinBytes) return path;
@@ -114,12 +118,19 @@ public static class WhisperModelProvider
     public static string DescribeChoice(SpeechConfig cfg) => Candidates(cfg)[0].Human;
 
     /// <param name="progress">Доля скачанного 0..1 и человекочитаемая подпись.</param>
-    public static async Task<string?> EnsureAsync(
+    public static Task<string?> EnsureAsync(
         SpeechConfig cfg,
         Action<double, string>? progress = null,
         CancellationToken ct = default)
+        => EnsureAsync(cfg, cfg.Model, progress, ct);
+
+    public static async Task<string?> EnsureAsync(
+        SpeechConfig cfg,
+        string? modelName,
+        Action<double, string>? progress = null,
+        CancellationToken ct = default)
     {
-        var local = FindLocal(cfg);
+        var local = FindLocal(cfg, modelName);
         if (local is not null)
         {
             Log.Info($"модель распознавания: {Path.GetFileName(local)}", "stt");
@@ -134,7 +145,7 @@ public static class WhisperModelProvider
             return null;
         }
 
-        foreach (var candidate in Candidates(cfg))
+        foreach (var candidate in Candidates(modelName, cfg.Quantization))
         {
             foreach (var host in new[] { BaseUrl, MirrorUrl })
             {

@@ -26,6 +26,27 @@ public class CommandParserTests
     }
 
     [Theory]
+    // Живая речь, а не диктовка роботу. Именно так люди и просят.
+    [InlineData("открой-ка мне стим", "стим")]
+    [InlineData("открой ка мне steam", "steam")]
+    [InlineData("можешь открыть стим", "стим")]
+    [InlineData("не мог бы ты открыть мне ютуб", "ютуб")]
+    [InlineData("будь добр запусти телеграм", "телеграм")]
+    [InlineData("мне нужно открыть ворд", "ворд")]
+    [InlineData("я хочу открыть ютуб", "ютуб")]
+    [InlineData("а открой-ка ютуб", "ютуб")]
+    [InlineData("давай быстренько открой стим", "стим")]
+    [InlineData("ну-ка запусти мне дискорд", "дискорд")]
+    [InlineData("can you open steam", "steam")]
+    public void ПониматьЖивуюРечь(string command, string expectedTarget)
+    {
+        var intent = CommandParser.Parse(command);
+
+        Assert.Equal(IntentKind.Launch, intent.Kind);
+        Assert.Equal(expectedTarget, intent.Argument);
+    }
+
+    [Theory]
     [InlineData("громче", IntentKind.VolumeUp)]
     [InlineData("сделай громче", IntentKind.VolumeUp)]
     [InlineData("тише", IntentKind.VolumeDown)]

@@ -53,6 +53,7 @@ public sealed class SettingsWindow : Form
     private SliderField _minSpeechMs = null!;
 
     private DropDownField _model = null!;
+    private DropDownField _probeModel = null!;
     private DropDownField _language = null!;
     private SliderField _threads = null!;
     private ToggleSwitch _earlyProbe = null!;
@@ -327,11 +328,20 @@ public sealed class SettingsWindow : Form
         _model = new DropDownField();
         _model.SetItems(new[]
         {
-            ("large-v3-turbo — лучший русский, 547 МБ", "largev3turbo"),
-            ("medium — хороший русский, 539 МБ", "medium"),
-            ("small — приемлемо, 181 МБ", "small"),
-            ("base — слабо, 57 МБ", "base"),
-            ("tiny — плохо, но очень быстро, 31 МБ", "tiny"),
+            ("small — успевает везде, 181 МБ", "small"),
+            ("base — быстрее, но грубее, 57 МБ", "base"),
+            ("medium — точнее, нужна видеокарта, 539 МБ", "medium"),
+            ("large-v3-turbo — лучший русский, нужна видеокарта, 547 МБ", "largev3turbo"),
+            ("tiny — на самых слабых машинах, 31 МБ", "tiny"),
+        });
+
+        _probeModel = new DropDownField();
+        _probeModel.SetItems(new[]
+        {
+            ("base — быстро и достаточно", "base"),
+            ("tiny — самая быстрая", "tiny"),
+            ("small — точнее, но медленнее", "small"),
+            ("Та же, что основная", ""),
         });
 
         _language = new DropDownField();
@@ -354,8 +364,11 @@ public sealed class SettingsWindow : Form
         return Stack(
             new SectionTitle("Распознавание речи", "Всё считается на этом компьютере. В сеть уходит только загрузка самой модели, один раз."),
             new SettingRow("Модель",
-                "Чем крупнее, тем лучше русский и тем точнее узнаются короткие имена — но тем дольше ответ без видеокарты. Смена модели применится после перезапуска и потребует загрузки.",
-                _model, 300),
+                "Чем крупнее, тем лучше русский — но тем дольше ответ. Без видеокарты крупные модели считают дольше, чем длится сама речь. Смена применится после перезапуска и потребует загрузки.",
+                _model, 340),
+            new SettingRow("Модель для проверки имени",
+                "Отвечает на единственный вопрос — прозвучало ли имя, — и большой для этого не нужна. Именно раздельные модели дают почти весь выигрыш в скорости отклика.",
+                _probeModel, 300),
             new SettingRow("Язык",
                 "На коротких фразах вроде «Ави, ютуб» автоопределение ненадёжно. В русском режиме английские названия приезжают кириллицей, но команды всё равно доходят.",
                 _language),
@@ -545,7 +558,8 @@ public sealed class SettingsWindow : Form
         _silenceMs.Value = c.Audio.SilenceMs;
         _minSpeechMs.Value = c.Audio.MinSpeechMs;
 
-        _model.Value = c.Speech.Model ?? "largev3turbo";
+        _model.Value = c.Speech.Model ?? "small";
+        _probeModel.Value = c.Speech.ProbeModel ?? "base";
         _language.Value = c.Speech.Language ?? "ru";
         _threads.Value = c.Speech.Threads;
         _earlyProbe.Checked = c.Speech.EarlyWakeProbe;
@@ -599,6 +613,7 @@ public sealed class SettingsWindow : Form
         c.Audio.MinSpeechMs = (int)_minSpeechMs.Value;
 
         c.Speech.Model = _model.Value;
+        c.Speech.ProbeModel = _probeModel.Value;
         c.Speech.Language = _language.Value;
         c.Speech.Threads = (int)_threads.Value;
         c.Speech.EarlyWakeProbe = _earlyProbe.Checked;

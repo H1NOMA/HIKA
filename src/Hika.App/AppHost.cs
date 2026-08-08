@@ -40,6 +40,14 @@ public sealed class AppHost : IDisposable
     private readonly AppCatalog _catalog = new();
     private readonly WhisperRecognizer _recognizer = new();
 
+    // Отдельная лёгкая модель для ранней проверки имени. Она отвечает
+    // на единственный вопрос — прозвучало ли имя, — и тяжёлая модель
+    // для этого не нужна. Пока модель была общей, каждая команда стоила
+    // трёх тяжёлых распознаваний вместо одного.
+    private readonly WhisperRecognizer _probeOwned = new();
+    private WhisperRecognizer _probeRecognizer;
+    private bool _probeSharesMain;
+
     private IVoiceActivityDetector? _vad;
     private UtteranceSegmenter? _segmenter;
     private WakeWordMatcher? _wakeMatcher;
@@ -52,6 +60,11 @@ public sealed class AppHost : IDisposable
     private readonly object _queueLock = new();
     private float[]? _pendingProbe;
     private float[]? _pendingUtterance;
+
+    // Ранняя проверка может идти прямо сейчас, когда фраза уже закончилась.
+    // Тогда её надо снимать: иначе готовая команда ждёт, пока договорит
+    // проверка, которая уже никому не нужна.
+    private CancellationTokenSource? _probeCancellation;
 
     private DateTime _armedUntil = DateTime.MinValue;
 
@@ -83,6 +96,7 @@ public sealed class AppHost : IDisposable
     public AppHost(ConfigStore configStore)
     {
         _configStore = configStore;
+        _probeRecognizer = _probeOwned;
     }
 
     public async Task<bool> StartAsync()
@@ -193,6 +207,8 @@ public sealed class AppHost : IDisposable
                 return;
             }
 
+            await LoadProbeModelAsync(config, words).ConfigureAwait(false);
+
             Log.Info("=== HIKA готова слушать ===", "host");
         }
         catch (Exception ex)
@@ -206,6 +222,58 @@ public sealed class AppHost : IDisposable
     {
         try { _catalog.SetInstalled(InstalledAppsScanner.Scan()); }
         catch (Exception ex) { Log.Error("обновление списка установленных программ сорвалось", ex, "host"); }
+    }
+
+    /// <summary>
+    /// Поднимает лёгкую модель для ранней проверки имени.
+    ///
+    /// Если она совпадает с основной, второй экземпляр не создаём: две копии
+    /// одной модели в памяти не дают ничего, кроме занятых мегабайт.
+    /// </summary>
+    private async Task LoadProbeModelAsync(HikaConfig config, IReadOnlyList<string> words)
+    {
+        var probeName = config.Speech.ProbeModel;
+
+        if (string.IsNullOrWhiteSpace(probeName) ||
+            string.Equals(probeName, config.Speech.Model, StringComparison.OrdinalIgnoreCase))
+        {
+            _probeSharesMain = true;
+            _probeRecognizer = _recognizer;
+            Log.Info("ранняя проверка имени идёт основной моделью", "host");
+            return;
+        }
+
+        try
+        {
+            var path = await WhisperModelProvider.EnsureAsync(
+                config.Speech, probeName, null, _shutdown.Token).ConfigureAwait(false);
+
+            if (path is null)
+            {
+                Log.Warn($"модель «{probeName}» для ранней проверки не скачалась, беру основную", "host");
+                _probeSharesMain = true;
+                _probeRecognizer = _recognizer;
+                return;
+            }
+
+            if (await _probeOwned.LoadAsync(path, config.Speech, words).ConfigureAwait(false))
+            {
+                _probeSharesMain = false;
+                _probeRecognizer = _probeOwned;
+                Log.Info($"ранняя проверка имени: {Path.GetFileName(path)}", "host");
+            }
+            else
+            {
+                _probeSharesMain = true;
+                _probeRecognizer = _recognizer;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("модель для ранней проверки не поднялась, беру основную", ex, "host");
+            _probeSharesMain = true;
+            _probeRecognizer = _recognizer;
+        }
     }
 
     private void HookSegmenter()
@@ -279,6 +347,10 @@ public sealed class AppHost : IDisposable
             _pendingProbe = null;
         }
 
+        // И ту проверку, что уже идёт, тоже снимаем — она про ту же фразу,
+        // а держит очередь перед готовой командой.
+        try { _probeCancellation?.Cancel(); } catch { }
+
         _workSignal.Set();
     }
 
@@ -316,10 +388,23 @@ public sealed class AppHost : IDisposable
 
     private void HandleProbe(float[] samples)
     {
-        if (!_recognizer.IsReady || _wakeMatcher is null) return;
+        var recognizer = _probeRecognizer;
+        if (!recognizer.IsReady || _wakeMatcher is null) return;
         if (State is HostState.Armed or HostState.Working) return;
 
-        var result = _recognizer.TranscribeAsync(samples, _shutdown.Token).GetAwaiter().GetResult();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+        _probeCancellation = cancellation;
+
+        RecognitionResult result;
+        try
+        {
+            result = recognizer.TranscribeAsync(samples, cancellation.Token).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            _probeCancellation = null;
+        }
+
         if (result.IsEmpty) return;
 
         var match = _wakeMatcher.Match(result.Text);
@@ -365,6 +450,8 @@ public sealed class AppHost : IDisposable
 
         if (_configStore.Current.Behavior.LogTranscripts)
             Log.Info($"услышано: «{result.Text}» [{result.Language}, {result.Elapsed.TotalMilliseconds:F0} мс]", "host");
+
+        WatchRecognitionSpeed(samples.Length, result.Elapsed);
 
         var match = _wakeMatcher.Match(result.Text);
 
@@ -423,6 +510,52 @@ public sealed class AppHost : IDisposable
         Log.Info($"итог: {(outcome.Success ? "выполнено" : "не вышло")} — {outcome.Description} (всего {stopwatch.ElapsedMilliseconds} мс)", "host");
 
         Finish(outcome.Success, stopwatch);
+    }
+
+    private int _slowRecognitions;
+    private bool _slownessReported;
+
+    /// <summary>
+    /// Следит, успевает ли распознавание за речью.
+    ///
+    /// Модель, считающая дольше, чем длится сама фраза, превращает ассистента
+    /// в бесполезный: человек не станет ждать по полминуты, каким бы точным
+    /// ни был ответ. Сказать об этом надо прямо и с готовым решением —
+    /// сам он на модель не подумает.
+    /// </summary>
+    private void WatchRecognitionSpeed(int sampleCount, TimeSpan elapsed)
+    {
+        if (_slownessReported) return;
+
+        var audioSeconds = sampleCount / (double)AudioFormat.SampleRate;
+        if (audioSeconds < 0.5) return;
+
+        var ratio = elapsed.TotalSeconds / audioSeconds;
+        if (ratio < 1.2)
+        {
+            _slowRecognitions = 0;
+            return;
+        }
+
+        Log.Warn($"распознавание отстаёт от речи: {elapsed.TotalSeconds:F1} с на {audioSeconds:F1} с звука", "host");
+
+        if (++_slowRecognitions < 2) return;
+        _slownessReported = true;
+
+        var model = _configStore.Current.Speech.Model;
+        var faster = model.Equals("largev3turbo", StringComparison.OrdinalIgnoreCase) ? "small"
+                   : model.Equals("medium", StringComparison.OrdinalIgnoreCase) ? "small"
+                   : model.Equals("small", StringComparison.OrdinalIgnoreCase) ? "base"
+                   : null;
+
+        var message = faster is null
+            ? $"Распознавание не успевает за речью (примерно в {ratio:F1} раза медленнее). " +
+              "Помогло бы ускорение на видеокарте — см. сборку hika-win-x64-vulkan."
+            : $"Распознавание не успевает за речью (примерно в {ratio:F1} раза медленнее). " +
+              $"Смените модель на «{faster}» в настройках — или возьмите сборку с ускорением " +
+              "на видеокарте, hika-win-x64-vulkan.";
+
+        StartupProblem?.Invoke(message);
     }
 
     private static BehaviorConfig ShallowCopyWithoutSearchFallback(BehaviorConfig source) => new()
@@ -551,6 +684,7 @@ public sealed class AppHost : IDisposable
         try { _reindexTimer?.Dispose(); } catch { }
         try { _overlay.Dispose(); } catch { }
         try { _recognizer.Dispose(); } catch { }
+        if (!_probeSharesMain) { try { _probeOwned.Dispose(); } catch { } }
         try { _vad?.Dispose(); } catch { }
         try { _shutdown.Dispose(); } catch { }
         try { _workSignal.Dispose(); } catch { }
