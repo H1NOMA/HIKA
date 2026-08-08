@@ -70,6 +70,7 @@ public sealed class SettingsWindow : Form
     private DropDownField _monitors = null!;
     private SliderField _thickness = null!;
     private SliderField _maxOpacity = null!;
+    private ToggleSwitch _showBeforeWake = null!;
     private SliderField _sensingOpacity = null!;
     private SliderField _reactivity = null!;
     private SliderField _fps = null!;
@@ -441,6 +442,7 @@ public sealed class SettingsWindow : Form
 
         _thickness = new SliderField { Minimum = 0.03, Maximum = 0.2, Step = 0.005, Format = v => $"{v * 100:0.0} %" };
         _maxOpacity = new SliderField { Minimum = 0.1, Maximum = 1.0, Step = 0.05, Format = v => $"{v * 100:0} %" };
+        _showBeforeWake = new ToggleSwitch();
         _sensingOpacity = new SliderField { Minimum = 0.0, Maximum = 0.6, Step = 0.02, Format = v => $"{v * 100:0} %" };
         _reactivity = new SliderField { Minimum = 0.0, Maximum = 1.0, Step = 0.05, Format = v => $"{v * 100:0} %" };
         _fps = new SliderField { Minimum = 20, Maximum = 120, Step = 5, Format = v => $"{v:0}" };
@@ -463,8 +465,14 @@ public sealed class SettingsWindow : Form
             new SettingRow("Яркость",
                 "Смысл настройки — обозначить себя и не засветить экран.",
                 _maxOpacity, 240),
-            new SettingRow("Яркость до того, как узнали имя",
-                "Появляется, когда рядом просто кто-то говорит. Должна быть заметно ниже обычной: если обращались не к ассистенту, вас не должно отвлекать. Ноль — не показывать вовсе.",
+            new SettingRow("Светиться до того, как услышала имя",
+                "Выключено — и правильно: кайма должна означать ровно одно, что прозвучало имя. " +
+                "Стоит ей начать вспыхивать от любого звука в комнате — от разговора рядом, от видео, " +
+                "от кашля, — и она перестаёт что-либо значить.",
+                _showBeforeWake, 46),
+            new SettingRow("Яркость этого свечения",
+                "Действует, только если включено предыдущее. Должна быть заметно ниже обычной: " +
+                "если обращались не к ассистенту, вас не должно отвлекать.",
                 _sensingOpacity, 240),
             new SettingRow("Отзывчивость на голос",
                 "Ноль — ровное дыхание без реакции на речь. Сто — только голос.",
@@ -972,6 +980,7 @@ public sealed class SettingsWindow : Form
         _monitors.Value = c.Overlay.Monitors ?? "primary";
         _thickness.Value = c.Overlay.Thickness;
         _maxOpacity.Value = c.Overlay.MaxOpacity;
+        _showBeforeWake.Checked = c.Overlay.ShowBeforeWakeWord;
         _sensingOpacity.Value = c.Overlay.SensingOpacity;
         _reactivity.Value = c.Overlay.VoiceReactivity;
         _fps.Value = c.Overlay.TargetFps;
@@ -1054,6 +1063,7 @@ public sealed class SettingsWindow : Form
         c.Overlay.Monitors = _monitors.Value;
         c.Overlay.Thickness = _thickness.Value;
         c.Overlay.MaxOpacity = _maxOpacity.Value;
+        c.Overlay.ShowBeforeWakeWord = _showBeforeWake.Checked;
         c.Overlay.SensingOpacity = _sensingOpacity.Value;
         c.Overlay.VoiceReactivity = _reactivity.Value;
         c.Overlay.TargetFps = (int)_fps.Value;

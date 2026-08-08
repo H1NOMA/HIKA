@@ -154,6 +154,9 @@ public sealed class ConfigStore : IDisposable
         c.Wake ??= new WakeConfig();
         c.Overlay ??= new OverlayConfig();
         c.Behavior ??= new BehaviorConfig();
+        c.Voice ??= new VoiceConfig();
+        c.Brain ??= new BrainConfig();
+        c.Learning ??= new LearningConfig();
         c.Custom ??= new List<CustomEntry>();
 
         if (c.Wake.Words is null || c.Wake.Words.Count == 0)

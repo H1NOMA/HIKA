@@ -458,7 +458,26 @@ public sealed class AppHost : IDisposable
         }
 
         SetState(HostState.Sensing);
-        _overlay.SetState(OverlayState.Sensing);
+        ShowSensing();
+    }
+
+    /// <summary>
+    /// Слабое свечение «кто-то говорит рядом, но к нам ли — пока неизвестно».
+    ///
+    /// По умолчанию не показывается вовсе, и это главное правило всей каймы:
+    /// свечение означает ровно одно — прозвучало имя. Стоит ему начать
+    /// вспыхивать от любого звука в комнате, и оно перестаёт что-либо значить,
+    /// превращаясь в мигающую по своим соображениям программу.
+    ///
+    /// Внутреннее состояние при этом всё равно меняется: значок в трее
+    /// показывает, что звук слышен, — но значок человек видит, только
+    /// когда сам туда посмотрит, а кайма лезет в глаза.
+    /// </summary>
+    private void ShowSensing()
+    {
+        _overlay.SetState(_configStore.Current.Overlay.ShowBeforeWakeWord
+            ? OverlayState.Sensing
+            : OverlayState.Hidden);
     }
 
     private void OnSpeechAborted()
@@ -581,7 +600,12 @@ public sealed class AppHost : IDisposable
         if (_voice.IsSpeaking) _voice.Hush();
 
         SetState(HostState.Working);
-        _overlay.SetState(wasArmed ? OverlayState.Thinking : OverlayState.Sensing);
+
+        // Имя ещё не прозвучало — значит, и светиться пока не с чего:
+        // распознавание идёт для всякой услышанной фразы, а к нам
+        // относится далеко не всякая.
+        if (wasArmed) _overlay.SetState(OverlayState.Thinking);
+        else ShowSensing();
 
         var stopwatch = Stopwatch.StartNew();
         var result = _recognizer.TranscribeAsync(samples, _shutdown.Token).GetAwaiter().GetResult();
