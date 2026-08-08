@@ -31,6 +31,7 @@ public static class SelfTest
 
         // ---- Окружение ----
         Line("── Окружение ──────────────────────────────────────────────────");
+        Line($"Сборка            : {BuildInfo.Describe()}");
         Line($"Windows           : {Environment.OSVersion.VersionString}");
         Line($".NET              : {Environment.Version}");
         Line($"Архитектура       : {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}");
@@ -213,6 +214,7 @@ public static class SelfTest
         var speechFrames = 0;
         var totalFrames = 0;
         double peak = 0;
+        float maxProbability = 0;
 
         var lastBar = DateTime.MinValue;
 
@@ -225,7 +227,9 @@ public static class SelfTest
             totalFrames++;
             peak = Math.Max(peak, meter.Rms);
 
-            if (vad.Process(span) >= config.Audio.VadThreshold) speechFrames++;
+            var probability = vad.Process(span);
+            if (probability > maxProbability) maxProbability = probability;
+            if (probability >= config.Audio.VadThreshold) speechFrames++;
 
             // Полоска уровня — чтобы человек сразу увидел, доходит ли до нас звук.
             if ((DateTime.UtcNow - lastBar).TotalMilliseconds > 120)
@@ -246,6 +250,7 @@ public static class SelfTest
         line($"  Кадров записано  : {totalFrames}");
         line($"  Из них с речью   : {speechFrames} ({(totalFrames > 0 ? speechFrames * 100.0 / totalFrames : 0):F0}%)");
         line($"  Пиковый уровень  : {peak:F4}");
+        line($"  Уверенность в речи, максимум: {maxProbability:F3} (порог {config.Audio.VadThreshold:F2})");
 
         if (peak < 0.005)
         {
@@ -261,7 +266,28 @@ public static class SelfTest
         if (speechFrames == 0)
         {
             line("");
-            line("  Звук есть, но речь не опознана. Попробуйте уменьшить audio.vadThreshold до 0.35.");
+
+            // Разница принципиальная: «уверенность низкая» лечится порогом,
+            // «уверенность нулевая» порогом не лечится никогда — сравнивать
+            // с нулём бесполезно, сломан сам детектор.
+            if (maxProbability < 0.05f)
+            {
+                line("  ДЕТЕКТОР РЕЧИ НЕ РАБОТАЕТ. Звук доходит, но его наибольшая");
+                line("  уверенность за всю запись — практически ноль. Порог тут ни при чём:");
+                line("  опускать его до нуля бессмысленно.");
+                line("");
+                line("  Обычно помогает удалить файл модели и дать ему скачаться заново:");
+                line($"    {SileroModelProvider.ExpectedPath(WhisperModelProvider.ResolveDirectory(config.Speech))}");
+                line("");
+                line("  Программа в этом случае сама переходит на запасной детектор");
+                line("  примерно через семь секунд разговора, так что глухой не останется.");
+            }
+            else
+            {
+                line($"  Звук есть, но до порога не дотянуло: максимум {maxProbability:F2} против {config.Audio.VadThreshold:F2}.");
+                line("  Опустите порог определения речи в настройках примерно до " +
+                     $"{Math.Max(0.15, maxProbability * 0.7):F2}.");
+            }
         }
 
         // Распознавание.

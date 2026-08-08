@@ -37,10 +37,10 @@ jobs:
         run: dotnet restore HIKA.sln
 
       - name: Собрать (Release)
-        run: dotnet build HIKA.sln -c Release --no-restore -warnaserror:false
+        run: dotnet build HIKA.sln -c Release --no-restore -warnaserror:false -p:SourceRevisionId=${{ github.sha }}
 
       - name: Опубликовать
-        run: dotnet publish src/Hika.App/Hika.App.csproj -c Release -o artifacts/hika --no-restore
+        run: dotnet publish src/Hika.App/Hika.App.csproj -c Release -o artifacts/hika --no-restore -p:SourceRevisionId=${{ github.sha }}
 
       - name: Выложить сборку
         uses: actions/upload-artifact@v4

@@ -66,10 +66,12 @@ internal static class Program
     private static int Dispatch(string[] args, ConfigStore store, HikaConfig config)
     {
         if (args.Contains("--help") || args.Contains("-h")) return PrintHelp();
-        if (args.Contains("--version")) { Console.WriteLine("HIKA 0.1.0"); return 0; }
+        if (args.Contains("--version")) { Console.WriteLine(BuildInfo.Describe()); return 0; }
 
         if (args.Contains("--list-audio"))
         {
+            Console.WriteLine(BuildInfo.Describe());
+            Console.WriteLine();
             Console.WriteLine("Микрофоны в системе:");
             foreach (var device in MicrophoneCapture.ListDevices())
                 Console.WriteLine($"  {(device.IsDefault ? "*" : " ")} {device.Name}");
@@ -159,8 +161,15 @@ internal static class Program
             try { GetSettings().ShowWindow(); }
             catch (Exception ex)
             {
+                // Не всплывающая подсказка, а полноценное окно с текстом ошибки.
+                // Подсказку легко пропустить, и тогда «настройки не открываются»
+                // остаётся без единой зацепки — а зацепка вот она.
                 Log.Error("окно настроек не открылось", ex, "ui");
-                tray.ShowMessage("HIKA", "Настройки не открылись. Подробности в журнале.", ToolTipIcon.Warning);
+
+                MessageBox.Show(
+                    $"Настройки не открылись.\n\n{ex.GetType().Name}: {ex.Message}\n\n" +
+                    $"Подробности: {AppPaths.LogDirectory}",
+                    "HIKA", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         };
 

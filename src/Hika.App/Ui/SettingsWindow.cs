@@ -463,7 +463,7 @@ public sealed class SettingsWindow : Form
         var info = new InfoPanel(_statusSource) { Height = 190 };
 
         return Stack(
-            new SectionTitle("О программе", "HIKA 0.1.0 — голосовое управление Windows. Всё распознавание идёт на этом компьютере."),
+            new SectionTitle("О программе", BuildInfo.Describe() + " — голосовое управление Windows. Всё распознавание идёт на этом компьютере."),
             info,
             new SettingRow("", "", openConfig, 230),
             new SettingRow("", "", openLogs, 230));

@@ -38,6 +38,7 @@ public static class LiveListen
         Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
         Console.WriteLine("║  HIKA — живая проверка распознавания                         ║");
         Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
+        Console.WriteLine(BuildInfo.Describe());
         Console.WriteLine();
 
         if (execute) Console.WriteLine("Режим: команды ВЫПОЛНЯЮТСЯ.");
@@ -92,7 +93,19 @@ public static class LiveListen
 
         if (vadPath is not null)
         {
-            try { vad = new SileroVad(vadPath); }
+            // Как в настоящей работе: с наблюдателем, который заметит,
+            // если нейросетевой детектор откажет молча.
+            try
+            {
+                var resilient = new ResilientVad(new SileroVad(vadPath), config.Audio.EnergyThreshold);
+                resilient.FellBack += message =>
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("  !! " + message);
+                    Console.WriteLine();
+                };
+                vad = resilient;
+            }
             catch { vad = new EnergyVad(config.Audio.EnergyThreshold); }
         }
         else

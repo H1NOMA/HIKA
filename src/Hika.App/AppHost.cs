@@ -150,11 +150,15 @@ public sealed class AppHost : IDisposable
 
             if (vadModel is not null)
             {
-                var silero = new SileroVad(vadModel);
+                // Оборачиваем в наблюдателя: если нейросетевой детектор откажет
+                // молча, программа переключится сама, а не оглохнет навсегда.
+                var resilient = new ResilientVad(new SileroVad(vadModel), config.Audio.EnergyThreshold);
+                resilient.FellBack += message => StartupProblem?.Invoke(message);
+
                 var previous = _vad;
 
-                _vad = silero;
-                _segmenter = new UtteranceSegmenter(silero, config.Audio, config.Speech);
+                _vad = resilient;
+                _segmenter = new UtteranceSegmenter(resilient, config.Audio, config.Speech);
                 HookSegmenter();
 
                 previous?.Dispose();

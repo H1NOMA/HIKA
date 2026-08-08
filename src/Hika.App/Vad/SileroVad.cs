@@ -28,7 +28,23 @@ public sealed class SileroVad : IVoiceActivityDetector
     private float[] _h = Array.Empty<float>();       // v4: [2,1,64]
     private float[] _c = Array.Empty<float>();
 
-    private readonly int[] _inputDims = { 1, AudioFormat.FrameSamples };
+    /// <summary>
+    /// Хвост предыдущего кадра, который пятая версия ожидает увидеть перед новым.
+    ///
+    /// Это самая коварная деталь во всей модели. Silero v5 принимает не 512
+    /// отсчётов, а 576: последние 64 отсчёта прошлого кадра плюс новые 512.
+    /// Размерность у входа плавающая, поэтому при подаче голых 512 модель
+    /// не ругается — она честно считает и стабильно отвечает «речи нет».
+    /// Снаружи это выглядит как полностью глухой ассистент при исправном звуке.
+    /// </summary>
+    private const int ContextSamples = 64;
+
+    private readonly float[] _context;
+    private readonly float[] _modelInput;
+    private readonly int[] _inputDims;
+
+    /// <summary>Наибольшая уверенность за всё время работы — для диагностики.</summary>
+    public float MaxProbabilitySeen { get; private set; }
 
     public string Name => _v5 ? "Silero VAD v5" : "Silero VAD v4";
 
@@ -59,6 +75,13 @@ public sealed class SileroVad : IVoiceActivityDetector
             : new[] { 1 };
         _srIsScalar = srDims is { Length: 0 };
 
+        // Четвёртая версия работает ровно на 512 отсчётах, пятая ждёт контекст.
+        var contextSize = _v5 ? ContextSamples : 0;
+
+        _context = new float[Math.Max(1, contextSize)];
+        _modelInput = new float[contextSize + AudioFormat.FrameSamples];
+        _inputDims = new[] { 1, _modelInput.Length };
+
         Reset();
 
         Log.Info($"{Name}: входы [{string.Join(", ", inputs)}], выходы [{string.Join(", ", outputs)}]", "vad");
@@ -70,13 +93,19 @@ public sealed class SileroVad : IVoiceActivityDetector
 
         try
         {
-            // Модель обучена на окне ровно 512 отсчётов при 16 кГц. Кадр другого
-            // размера дополняем тишиной либо обрезаем — иначе получим мусор на выходе.
-            var buffer = new float[AudioFormat.FrameSamples];
-            var n = Math.Min(frame.Length, AudioFormat.FrameSamples);
-            frame[..n].CopyTo(buffer);
+            // Собираем вход: хвост прошлого кадра, затем новые отсчёты.
+            var offset = _v5 ? ContextSamples : 0;
+            if (offset > 0) Array.Copy(_context, 0, _modelInput, 0, offset);
 
-            var audio = new DenseTensor<float>(buffer, _inputDims);
+            var n = Math.Min(frame.Length, AudioFormat.FrameSamples);
+            frame[..n].CopyTo(_modelInput.AsSpan(offset));
+
+            // Неполный кадр дополняем тишиной: и модель, и измеритель
+            // рассчитывают на постоянный размер окна.
+            if (n < AudioFormat.FrameSamples)
+                Array.Clear(_modelInput, offset + n, AudioFormat.FrameSamples - n);
+
+            var audio = new DenseTensor<float>(_modelInput, _inputDims);
 
             var sr = _srIsScalar
                 ? new DenseTensor<long>(new long[] { AudioFormat.SampleRate }, Array.Empty<int>())
@@ -123,7 +152,13 @@ public sealed class SileroVad : IVoiceActivityDetector
                 }
             }
 
-            return Math.Clamp(probability, 0f, 1f);
+            // Хвост текущего входа станет контекстом для следующего кадра.
+            if (_v5) Array.Copy(_modelInput, _modelInput.Length - ContextSamples, _context, 0, ContextSamples);
+
+            probability = Math.Clamp(probability, 0f, 1f);
+            if (probability > MaxProbabilitySeen) MaxProbabilitySeen = probability;
+
+            return probability;
         }
         catch (Exception ex)
         {
@@ -145,6 +180,8 @@ public sealed class SileroVad : IVoiceActivityDetector
             _h = new float[2 * 1 * 64];
             _c = new float[2 * 1 * 64];
         }
+
+        Array.Clear(_context);
     }
 
     public void Dispose() => _session.Dispose();
