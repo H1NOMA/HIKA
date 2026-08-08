@@ -706,10 +706,15 @@ public sealed class AppHost : IDisposable
         if (!outcome.Success && CanTalk() && _configStore.Current.Brain.AnswerUnknownCommands
             && Conversation.MightBeTalk(command))
         {
-            journal.Intent = "разговор";
-            journal.Success = Talk(command);
+            journal.Intent = "разговор вместо команды";
+
+            // Наблюдениям записываем именно неудачу команды, а не то, что
+            // разговор состоялся. Иначе пропадёт лучший сигнал обучения:
+            // человек сейчас переспросит иначе, и связать одну формулировку
+            // с другой можно только помня, что первая не сработала.
             Record(journal, command);
-            FinishTalk(journal.Success, stopwatch);
+
+            FinishTalk(Talk(command), stopwatch);
             return;
         }
 
