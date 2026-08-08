@@ -119,30 +119,19 @@ public sealed class AppCatalog
         return result;
     }
 
-    /// <summary>Обходит меню «Пуск» и список приложений Windows. Вызывать в фоне.</summary>
-    public void RefreshInstalled()
+    /// <summary>
+    /// Подменяет список установленного в системе. Кто именно его собрал,
+    /// каталогу неизвестно — обход диска живёт в части, привязанной к Windows.
+    ///
+    /// Список заменяется целиком и одним присваиванием, поэтому распознавание
+    /// команды никогда не ждёт обновления и не видит его наполовину.
+    /// </summary>
+    public void SetInstalled(IReadOnlyList<CatalogEntry> installed)
     {
-        try
-        {
-            var found = new List<CatalogEntry>();
-            found.AddRange(AppsFolderIndexer.Index());
-            found.AddRange(StartMenuIndexer.Index());
+        _installed = installed;
+        Rebuild();
 
-            // Дубликаты между двумя источниками убираем по отображаемому имени.
-            var unique = found
-                .GroupBy(e => e.DisplayName, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .ToList();
-
-            _installed = unique;
-            Rebuild();
-
-            Log.Info($"каталог обновлён: всего записей {_all.Length}", "catalog");
-        }
-        catch (Exception ex)
-        {
-            Log.Error("обновление списка установленных приложений сорвалось", ex, "catalog");
-        }
+        Log.Info($"каталог обновлён: всего записей {_all.Length}", "catalog");
     }
 
     private void Rebuild()

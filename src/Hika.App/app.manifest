@@ -25,14 +25,16 @@
   </compatibility>
 
   <!--
-    PerMonitorV2 обязателен: свечение рисуется в физических пикселях по краям
-    каждого монитора, и без корректного DPI на смешанных конфигурациях
-    (4K + 1080p) кайма поедет.
+    Осведомлённость о DPI задаётся свойством ApplicationHighDpiMode в csproj,
+    а не здесь: WinForms предупреждает о дублировании, и при расхождении
+    двух источников выигрывает манифест — то есть настройка в проекте
+    молча перестала бы работать.
+
+    Кодовая страница остаётся: она к DPI отношения не имеет, а кириллица
+    в путях и названиях программ встречается постоянно.
   -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
       <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
     </windowsSettings>
   </application>

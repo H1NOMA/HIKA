@@ -1,8 +1,5 @@
 name: build
 
-# Собирает HIKA на настоящей Windows. Нужно потому, что разработка ведётся
-# не на Windows — этот прогон ловит ошибки компиляции до того, как до них
-# дойдёт живой человек.
 on:
   push:
     branches: ["**"]
@@ -10,6 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Разбор русских команд: транслитерация, слово пробуждения, каталог,
+  # отсев выдумок распознавателя. Ни микрофона, ни экрана не требует,
+  # поэтому идёт отдельной быстрой задачей и не ждёт сборки под Windows.
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Прогнать тесты
+        run: dotnet test tests/Hika.Tests/Hika.Tests.csproj -c Release --verbosity normal
+
   windows:
     runs-on: windows-latest
     steps:
@@ -25,12 +38,6 @@ jobs:
 
       - name: Собрать (Release)
         run: dotnet build HIKA.sln -c Release --no-restore -warnaserror:false
-
-      # Проверяют разбор русских команд: транслитерацию, слово пробуждения,
-      # каталог, отсев выдумок распознавателя. Микрофон и экран не нужны,
-      # поэтому это единственная часть, которую вообще можно проверить в CI.
-      - name: Прогнать тесты
-        run: dotnet test tests/Hika.Tests/Hika.Tests.csproj -c Release --no-build --verbosity normal
 
       - name: Опубликовать
         run: dotnet publish src/Hika.App/Hika.App.csproj -c Release -o artifacts/hika --no-restore

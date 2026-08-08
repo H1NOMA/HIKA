@@ -125,10 +125,10 @@ public sealed class AppHost : IDisposable
         {
             _ = Task.Run(() =>
             {
-                _catalog.RefreshInstalled();
+                RefreshInstalledApps();
 
                 var period = TimeSpan.FromMinutes(config.Behavior.ReindexMinutes);
-                _reindexTimer = new System.Threading.Timer(_ => _catalog.RefreshInstalled(), null, period, period);
+                _reindexTimer = new System.Threading.Timer(_ => RefreshInstalledApps(), null, period, period);
             });
         }
 
@@ -193,6 +193,12 @@ public sealed class AppHost : IDisposable
             Log.Error("загрузка распознавания сорвалась", ex, "host");
             StartupProblem?.Invoke("Распознавание речи не запустилось. Подробности в журнале.");
         }
+    }
+
+    private void RefreshInstalledApps()
+    {
+        try { _catalog.SetInstalled(InstalledAppsScanner.Scan()); }
+        catch (Exception ex) { Log.Error("обновление списка установленных программ сорвалось", ex, "host"); }
     }
 
     private void HookSegmenter()

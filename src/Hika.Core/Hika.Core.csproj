@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Обычный net9.0 без привязки к Windows — и это главное свойство проекта.
+
+    Здесь живёт вся работа с текстом: транслитерация, нечёткое сравнение,
+    слово пробуждения, разбор команд, каталог. Именно эта часть определяет,
+    поймёт ли программа сказанное по-русски, и именно её важнее всего
+    проверять на каждом изменении.
+
+    Пока она лежала вместе с окнами и микрофоном, тесты требовали Windows
+    и запускались только на сборочном сервере. Вынесенная отдельно, она
+    тестируется где угодно за пару секунд.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Hika.Core</AssemblyName>
+    <RootNamespace>Hika</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="Catalog\catalog.default.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

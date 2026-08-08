@@ -38,3 +38,6 @@ config.local.json
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Локальный SDK, если ставился в дерево проекта
+/dotnet/

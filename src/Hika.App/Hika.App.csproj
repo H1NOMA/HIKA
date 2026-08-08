@@ -8,6 +8,13 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
 
     <UseWindowsForms>true</UseWindowsForms>
+
+    <!--
+      Обязательно PerMonitorV2: свечение рисуется в физических пикселях
+      по краям каждого монитора, и без этого на связке 4K + 1080p кайма поедет.
+    -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+
     <AssemblyName>Hika</AssemblyName>
     <RootNamespace>Hika</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -47,9 +54,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Catalog\catalog.default.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <!-- Разбор текста и каталог: без привязки к Windows, потому тестируются отдельно. -->
+    <ProjectReference Include="..\Hika.Core\Hika.Core.csproj" />
   </ItemGroup>
 
 </Project>

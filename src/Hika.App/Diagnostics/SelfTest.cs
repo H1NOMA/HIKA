@@ -88,7 +88,7 @@ public static class SelfTest
         Line("── Разбор команд (без микрофона) ──────────────────────────────");
         var catalog = new AppCatalog();
         catalog.Load(config);
-        catalog.RefreshInstalled();
+        catalog.SetInstalled(InstalledAppsScanner.Scan());
         Line($"Записей в каталоге: {catalog.Count} (встроенных {catalog.BuiltinCount}, найдено в системе {catalog.InstalledCount})");
         Line();
 

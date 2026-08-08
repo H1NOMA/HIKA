@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Обычный net9.0, без Windows: тесты проверяют разбор текста, а он ни от
+    микрофона, ни от экрана не зависит. Благодаря этому они запускаются
+    на любой машине за пару секунд, а не только на сборочном сервере.
+  -->
   <PropertyGroup>
-    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
-    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net9.0</TargetFramework>
     <IsPackable>false</IsPackable>
-    <OutputType>Library</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,19 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Hika.App\Hika.App.csproj" />
-  </ItemGroup>
-
-  <!--
-    Каталог нужен рядом со сборкой тестов: содержимое из проекта-ссылки
-    само сюда не попадает, а тесты разбора команд работают с настоящим
-    встроенным каталогом, а не с выдуманным.
-  -->
-  <ItemGroup>
-    <None Include="..\..\src\Hika.App\Catalog\catalog.default.json"
-          Link="Catalog\catalog.default.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <ProjectReference Include="..\..\src\Hika.Core\Hika.Core.csproj" />
   </ItemGroup>
 
 </Project>
