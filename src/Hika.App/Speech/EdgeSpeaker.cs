@@ -175,17 +175,21 @@ public sealed class EdgeSpeaker : ISpeaker
         if (voice is null || string.IsNullOrWhiteSpace(text)) return null;
 
         using var socket = new ClientWebSocket();
-        socket.Options.SetRequestHeader("Pragma", "no-cache");
-        socket.Options.SetRequestHeader("Cache-Control", "no-cache");
-        socket.Options.SetRequestHeader("Origin", "chrome-extension://jdiccldimpahbcfhjjaacgpmpbivmkgm");
-        socket.Options.SetRequestHeader("User-Agent", UserAgent);
-        socket.Options.SetRequestHeader("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8");
 
         var url = $"{Endpoint}?TrustedClientToken={TrustedClientToken}" +
                   $"&Sec-MS-GEC={SecurityToken()}&Sec-MS-GEC-Version=1-{ChromeVersion}";
 
         try
         {
+            // Заголовки внутри try намеренно: часть из них .NET считает своими
+            // и на попытку задать бросает исключение. Такое должно кончаться
+            // возвратом к местному голосу, а не падением потока озвучки.
+            socket.Options.SetRequestHeader("Pragma", "no-cache");
+            socket.Options.SetRequestHeader("Cache-Control", "no-cache");
+            socket.Options.SetRequestHeader("Origin", "chrome-extension://jdiccldimpahbcfhjjaacgpmpbivmkgm");
+            socket.Options.SetRequestHeader("User-Agent", UserAgent);
+            socket.Options.SetRequestHeader("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8");
+
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
             var token = timeout.Token;

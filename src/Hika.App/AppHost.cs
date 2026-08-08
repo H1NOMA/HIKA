@@ -737,6 +737,11 @@ public sealed class AppHost : IDisposable
             }
 
             Log.Info($"ответила: «{Shorten(answer)}»", "host");
+
+            // Ответ есть, а произнести его нечем — снаружи это выглядит как
+            // «спросил и ничего не произошло», и догадаться о причине нельзя.
+            WarnIfAnswerWentNowhere(answer);
+
             return true;
         }
         catch (Exception ex)
@@ -749,6 +754,25 @@ public sealed class AppHost : IDisposable
 
     private static string Shorten(string text)
         => text.Length <= 120 ? text : text[..117] + "…";
+
+    private bool _mutedAnswerReported;
+
+    /// <summary>
+    /// Ответ получен, а озвучки нет.
+    ///
+    /// Снаружи это неотличимо от «не услышала»: человек спросил, кайма
+    /// подышала и погасла. Сказать об этом надо один раз и по существу,
+    /// а сам ответ показать — иначе он просто пропадёт.
+    /// </summary>
+    private void WarnIfAnswerWentNowhere(string answer)
+    {
+        if (_voice.IsReady || _mutedAnswerReported) return;
+        _mutedAnswerReported = true;
+
+        StartupProblem?.Invoke(
+            $"Я ответила, но озвучить нечем ({_voice.Description}). Вот ответ: {Shorten(answer)}\n\n" +
+            "Голос включается в настройках, раздел «Голос».");
+    }
 
     private void SayFailure(string what)
     {
