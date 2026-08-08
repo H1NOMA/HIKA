@@ -19,7 +19,7 @@ public sealed class SkillRouter
         {
             return intent.Kind switch
             {
-                IntentKind.Launch => Launch(intent.Argument, behavior),
+                IntentKind.Launch => Launch(intent.Argument, behavior, intent.ExplicitVerb),
                 IntentKind.Search => Search(intent.Argument, behavior),
 
                 IntentKind.VolumeUp => SystemActions.VolumeUp(),
@@ -46,19 +46,35 @@ public sealed class SkillRouter
         }
     }
 
-    private SkillResult Launch(string phrase, BehaviorConfig behavior)
+    private SkillResult Launch(string phrase, BehaviorConfig behavior, bool explicitVerb)
     {
         if (string.IsNullOrWhiteSpace(phrase)) return SkillResult.Fail("нечего открывать");
 
-        var match = _catalog.Resolve(phrase, behavior.MatchThreshold);
+        // Явный глагол снимает неоднозначность намерения, и на это стоит
+        // опереться: раз человек сказал «запусти», он говорит о программе.
+        // Значит, можно смелее искать по каталогу — пропустить установленную
+        // игру с непривычным названием хуже, чем разок открыть не то.
+        var threshold = explicitVerb ? behavior.MatchThreshold * 0.78 : behavior.MatchThreshold;
+
+        var match = _catalog.Resolve(phrase, threshold);
         if (match is not null) return Launcher.Launch(match.Entry);
 
         // Похоже на адрес сайта — открываем как есть.
         if (LooksLikeDomain(phrase))
             return Launcher.OpenUrl(phrase.Replace(" ", ""), phrase);
 
-        // Ничего не нашли. Молча проглотить команду хуже, чем показать
-        // результаты поиска: человек хотя бы увидит, что его услышали.
+        // И вот здесь глагол решает исход. «Запусти Helldivers 2» — просьба
+        // запустить игру; открыть вместо неё поисковую выдачу значит сделать
+        // не то, о чём просили. Честнее признать, что не нашли.
+        if (explicitVerb)
+        {
+            Log.Info($"«{phrase}» не найдено, но глагол был явный — в поиск не ухожу", "skills");
+            return SkillResult.Fail($"«{phrase}» не найдено среди установленных программ");
+        }
+
+        // Цель названа без глагола, намерение неочевидно. Молча проглотить
+        // команду хуже, чем показать результаты: человек хотя бы увидит,
+        // что его услышали.
         if (behavior.WebSearchFallback)
         {
             Log.Info($"«{phrase}» в каталоге нет, ухожу в поиск", "skills");

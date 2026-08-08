@@ -148,6 +148,40 @@ public static class Translit
     }
 
     /// <summary>
+    /// Числительные словами и их цифровая запись.
+    ///
+    /// Названия программ и игр сплошь и рядом заканчиваются цифрой —
+    /// Helldivers 2, Diablo 4, Portal 2, — а произносят их словом. Без этой
+    /// таблицы «запусти халдайверс два» не найдёт «Helldivers 2» никогда:
+    /// «два» и «2» не похожи ни одной буквой.
+    /// </summary>
+    private static readonly Dictionary<string, string> NumberWords = new(StringComparer.Ordinal)
+    {
+        ["ноль"] = "0", ["один"] = "1", ["одна"] = "1", ["первый"] = "1",
+        ["два"] = "2", ["две"] = "2", ["второй"] = "2", ["двойка"] = "2",
+        ["три"] = "3", ["третий"] = "3", ["тройка"] = "3",
+        ["четыре"] = "4", ["четвертый"] = "4", ["четвёртый"] = "4",
+        ["пять"] = "5", ["пятый"] = "5",
+        ["шесть"] = "6", ["шестой"] = "6",
+        ["семь"] = "7", ["седьмой"] = "7",
+        ["восемь"] = "8", ["восьмой"] = "8",
+        ["девять"] = "9", ["девятый"] = "9",
+        ["десять"] = "10", ["десятый"] = "10",
+        ["одиннадцать"] = "11", ["двенадцать"] = "12",
+
+        ["zero"] = "0", ["one"] = "1", ["two"] = "2", ["three"] = "3",
+        ["four"] = "4", ["five"] = "5", ["six"] = "6", ["seven"] = "7",
+        ["eight"] = "8", ["nine"] = "9", ["ten"] = "10",
+
+        // Римские — их пишут в названиях не реже арабских.
+        ["ii"] = "2", ["iii"] = "3", ["iv"] = "4", ["vi"] = "6",
+    };
+
+    /// <summary>Цифровая запись числительного или null, если слово не числительное.</summary>
+    public static string? AsDigits(string word)
+        => NumberWords.TryGetValue(word, out var digits) ? digits : null;
+
+    /// <summary>
     /// Набор написаний, по которым имеет смысл сравнивать слово: само слово,
     /// его транслитерация и свёрнутая форма. Совпадение по любому из них считается совпадением.
     /// </summary>
@@ -155,6 +189,10 @@ public static class Translit
     {
         var normalized = TextNormalizer.Normalize(word);
         if (normalized.Length == 0) return Array.Empty<string>();
+
+        // Числительное сравнивается и словом, и цифрой: «два» должно найти «2».
+        var digits = AsDigits(normalized);
+        if (digits is not null) return new[] { normalized, digits };
 
         var latin = ToLatin(normalized);
         var folded = Fold(latin);

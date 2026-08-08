@@ -215,7 +215,8 @@ public static class CommandParser
 
         // Запуск: снимаем глагол, если он есть.
         var start = 0;
-        if (LaunchVerbs.Contains(cleaned[0])) start = 1;
+        var explicitVerb = LaunchVerbs.Contains(cleaned[0]);
+        if (explicitVerb) start = 1;
 
         var target = cleaned[start..]
             .Where(t => !TargetNoise.Contains(t))
@@ -227,7 +228,7 @@ public static class CommandParser
             return start > 0 ? Intent.None : new Intent(IntentKind.Launch, string.Join(' ', cleaned));
         }
 
-        return new Intent(IntentKind.Launch, string.Join(' ', target));
+        return new Intent(IntentKind.Launch, string.Join(' ', target)) { ExplicitVerb = explicitVerb };
     }
 
     /// <summary>

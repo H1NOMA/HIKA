@@ -62,6 +62,30 @@ public class TranslitTests
         Assert.Equal("chrom", Translit.Fold("chrome"));
     }
 
+    [Theory]
+    // Названия игр сплошь и рядом заканчиваются цифрой, а произносят их словом.
+    [InlineData("два", "2")]
+    [InlineData("две", "2")]
+    [InlineData("три", "3")]
+    [InlineData("четыре", "4")]
+    [InlineData("two", "2")]
+    [InlineData("ii", "2")]
+    public void ЧислительныеСовпадаютСЦифрами(string word, string digits)
+    {
+        Assert.Equal(1.0, FuzzyMatch.BestSimilarity(word, digits), 3);
+    }
+
+    [Fact]
+    public void СловоИзДвухЧастейСЧисломНаходится()
+    {
+        // «халдайверс два» против «helldivers 2» — ровно то, что говорят вслух.
+        var spoken = TextNormalizer.Tokenize("халдайверс два");
+        var target = TextNormalizer.Tokenize("helldivers 2");
+
+        var score = FuzzyMatch.PhraseSimilarity(spoken, target);
+        Assert.True(score >= 0.62, $"совпадение всего {score:F2} — игра не найдётся");
+    }
+
     [Fact]
     public void ЁСводитсяКЕ()
     {

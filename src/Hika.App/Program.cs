@@ -274,8 +274,11 @@ internal static class Program
         overlay.RunSelfTestAsync().GetAwaiter().GetResult();
 
         Console.WriteLine();
-        Console.WriteLine("Готово. Если по краям ничего не появилось — дело в отрисовке,");
-        Console.WriteLine("и микрофон тут ни при чём. Пришлите журнал: " + AppPaths.LogDirectory);
+        Console.WriteLine("Состояние отрисовки: " + overlay.DescribeHealth());
+        Console.WriteLine();
+        Console.WriteLine("Если по краям ничего не появилось, а строка выше говорит «в порядке»,");
+        Console.WriteLine("значит окна рисуются, но их что-то перекрывает. Пришлите эту строку");
+        Console.WriteLine("и журнал: " + AppPaths.LogDirectory);
 
         return 0;
     }

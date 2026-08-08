@@ -42,6 +42,7 @@ public sealed class GlowOverlay : IDisposable
     private int _colorGroup = -1;
 
     private readonly double[] _current = new double[4];
+    private double _flow;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private double _flashStarted = -1;
 
@@ -152,6 +153,31 @@ public sealed class GlowOverlay : IDisposable
 
     /// <summary>Сколько окон свечения реально создано. Ноль — значит, показывать нечего.</summary>
     public int BandCount => _bands.Count;
+
+    /// <summary>
+    /// Отчёт о том, дошло ли рисование до экрана.
+    ///
+    /// Отвечает на вопрос, который иначе неотличим на глаз: окна созданы,
+    /// состояния переключаются, а кайма не видна. Если Windows отклоняет
+    /// отрисовку, она делает это молча — узнать можно только по коду ошибки.
+    /// </summary>
+    public string DescribeHealth()
+    {
+        if (_bands.Count == 0) return "окон свечения нет";
+
+        var drawn = _bands.Sum(b => b.FramesDrawn);
+        var failed = _bands.Where(b => b.LastError != 0).ToList();
+
+        if (failed.Count > 0)
+        {
+            var codes = string.Join(", ", failed.Select(b => $"{b.Edge}: код {b.LastError}"));
+            return $"ОТРИСОВКА ОТКЛОНЕНА WINDOWS ({codes}), кадров прошло: {drawn}";
+        }
+
+        return drawn == 0
+            ? "окна созданы, но не отрисовано ни одного кадра"
+            : $"в порядке, кадров отрисовано: {drawn}";
+    }
 
     // ---- Поток отрисовки -------------------------------------------------
 
@@ -350,6 +376,18 @@ public sealed class GlowOverlay : IDisposable
             var activeOnly = _config.Monitors.Equals("active", StringComparison.OrdinalIgnoreCase);
             var cursor = activeOnly ? CursorScreen() : Rectangle.Empty;
 
+            // Перелив: цвета едут по кругу вдоль периметра. Скорость зависит
+            // от состояния — в ожидании неспешно, во время работы заметно живее.
+            var flowSpeed = state switch
+            {
+                OverlayState.Sensing => 0.04,
+                OverlayState.Listening => 0.09 + level * 0.10,
+                OverlayState.Thinking => 0.22,
+                _ => 0.06,
+            };
+
+            _flow += flowSpeed / Math.Max(15, _config.TargetFps);
+
             foreach (var band in _bands)
             {
                 var value = _current[(int)band.Edge];
@@ -358,7 +396,12 @@ public sealed class GlowOverlay : IDisposable
                 // на котором сейчас указатель мыши.
                 if (activeOnly && band.MonitorBounds != cursor) value = 0;
 
-                band.SetAlpha(value < 0.004 ? 0 : value);
+                // Нижняя и левая стороны читаются в обратную сторону, иначе
+                // свет пошёл бы по периметру навстречу сам себе.
+                var reversed = band.Edge is Edge.Bottom or Edge.Left;
+                var flow = reversed ? -_flow : _flow;
+
+                band.SetFrame(value < 0.004 ? 0 : value, flow);
             }
         }
         catch (Exception ex)
@@ -419,21 +462,18 @@ public sealed class GlowOverlay : IDisposable
         if (group == _colorGroup) return;
         _colorGroup = group;
 
-        // Цвета углов идут по кругу, поэтому конец одной стороны совпадает
-        // с началом следующей — переход получается без стыков.
-        var corners = new[]
+        // В обычном состоянии по краю идёт вся палитра целиком — на каждой
+        // стороне видно несколько оттенков сразу, и они перетекают друг в друга.
+        // Успех и ошибка перекрашивают кайму в один цвет: их задача не украшать,
+        // а сообщить исход одним взглядом.
+        var palette = state switch
         {
-            _palette.ColorFor(state, Edge.Top),
-            _palette.ColorFor(state, Edge.Right),
-            _palette.ColorFor(state, Edge.Bottom),
-            _palette.ColorFor(state, Edge.Left),
+            OverlayState.Success => new[] { _palette.Success },
+            OverlayState.Failed => new[] { _palette.Failed },
+            _ => _palette.Edges,
         };
 
-        foreach (var band in _bands)
-        {
-            var index = (int)band.Edge;
-            band.Rebuild(band.BandBounds, corners[index], corners[(index + 1) % 4]);
-        }
+        foreach (var band in _bands) band.Rebuild(band.BandBounds, palette);
     }
 
     private double TargetAlpha(OverlayState state, int edge, double time, double level)

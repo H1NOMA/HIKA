@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Hika.Diagnostics;
 using Hika.Interop;
@@ -9,10 +10,17 @@ namespace Hika.Overlay;
 /// <summary>
 /// Одна светящаяся полоса вдоль стороны экрана.
 ///
-/// Устройство намеренно устроено так, что форма свечения рисуется один раз,
-/// а каждый кадр меняется только общая прозрачность окна. Голос управляет
-/// именно ей — благодаря этому кайма отзывается на речь мгновенно, а
-/// перерисовки картинки при этом не происходит вовсе.
+/// Две вещи здесь сделаны намеренно и стоят пояснения.
+///
+/// Первая: форма свечения рисуется один раз, а каждый кадр меняются только
+/// прозрачность окна и точка чтения из картинки. Благодаря этому кайма
+/// отзывается на голос мгновенно и переливается, а перерисовки не происходит
+/// вовсе — в покое отрисовка не стоит ничего.
+///
+/// Вторая: картинка вдвое длиннее самой полосы и содержит непрерывный цикл
+/// цветов. Смещая точку чтения, мы гоним цвета вдоль края — тот самый
+/// перелив, — и это обходится в одно целое число за кадр вместо перерисовки
+/// миллиона пикселей.
 ///
 /// Окно сквозное для мыши, не забирает фокус и не показывается ни в панели
 /// задач, ни в Alt+Tab: человек должен видеть свечение и не замечать окна.
@@ -26,15 +34,28 @@ internal sealed class GlowBandWindow : Form
     private IntPtr _bitmapHandle = IntPtr.Zero;
     private IntPtr _previousBitmap = IntPtr.Zero;
 
+    /// <summary>Во сколько раз картинка длиннее полосы. Запас нужен для прокрутки цветов.</summary>
+    private const int CycleFactor = 2;
+
+    private int _cycleLength;
+
     // Сознательно int, а не byte: −1 означает «ещё ничего не рисовали».
     // С byte-сентинелом пришлось бы занять какое-то настоящее значение
     // прозрачности, и кадр ровно с ним молча терялся бы.
     private int _lastAlpha = -1;
+    private int _lastOffset = -1;
 
     private bool _visible;
     private bool _surfaceReady;
+    private bool _failureLogged;
 
     public Edge Edge => _edge;
+
+    /// <summary>Ноль — ни один кадр так и не отрисовался. Для проверки свечения.</summary>
+    public int FramesDrawn { get; private set; }
+
+    /// <summary>Код последней ошибки Windows при отрисовке, ноль — ошибок не было.</summary>
+    public int LastError { get; private set; }
 
     /// <summary>
     /// Положение полосы в физических пикселях рабочего стола.
@@ -60,7 +81,12 @@ internal sealed class GlowBandWindow : Form
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.None;
         Text = "";
-        Opacity = 1.0;
+
+        // Ни Opacity, ни AllowTransparency трогать нельзя, и это не мелочь.
+        // Оба заставляют WinForms вызвать SetLayeredWindowAttributes, а этот
+        // вызов и UpdateLayeredWindow взаимоисключающие: после первого второй
+        // навсегда возвращает ошибку. Окно при этом остаётся пустым и молчит.
+        // Именно на этом свечение и не появлялось.
 
         // Ничего не рисуем средствами форм: содержимое окна целиком задаётся
         // через UpdateLayeredWindow, и любая попытка WinForms закрасить фон
@@ -79,6 +105,26 @@ internal sealed class GlowBandWindow : Form
                                | Win32.WS_EX_NOACTIVATE
                                | Win32.WS_EX_TOPMOST);
             return cp;
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // Страховка от того же самого: если WinForms всё-таки успела применить
+        // к окну прозрачность своим способом, снятие и возврат стиля сбрасывает
+        // это состояние, и UpdateLayeredWindow снова становится доступен.
+        try
+        {
+            var style = Win32.GetWindowLongAuto(Handle, Win32.GWL_EXSTYLE).ToInt64();
+
+            Win32.SetWindowLongAuto(Handle, Win32.GWL_EXSTYLE, new IntPtr(style & ~Win32.WS_EX_LAYERED));
+            Win32.SetWindowLongAuto(Handle, Win32.GWL_EXSTYLE, new IntPtr(style | Win32.WS_EX_LAYERED));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"сброс состояния прозрачности не удался: {ex.Message}", "overlay");
         }
     }
 
@@ -104,18 +150,25 @@ internal sealed class GlowBandWindow : Form
     /// Пересоздаёт картинку свечения. Вызывается при смене состояния,
     /// разрешения или палитры — но не каждый кадр.
     /// </summary>
-    public void Rebuild(Rectangle bounds, Color from, Color to)
+    public void Rebuild(Rectangle bounds, Color[] palette)
     {
         _bounds = bounds;
         ReleaseSurface();
 
-        var width = Math.Max(1, bounds.Width);
-        var height = Math.Max(1, bounds.Height);
+        var horizontal = _edge is Edge.Top or Edge.Bottom;
+
+        var bandLength = Math.Max(1, horizontal ? bounds.Width : bounds.Height);
+        var depth = Math.Max(1, horizontal ? bounds.Height : bounds.Width);
+
+        _cycleLength = bandLength;
+
+        var width = horizontal ? bandLength * CycleFactor : depth;
+        var height = horizontal ? depth : bandLength * CycleFactor;
 
         try
         {
             using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
-            DrawGlow(bitmap, from, to);
+            DrawGlow(bitmap, palette, horizontal, depth, bandLength);
 
             // Нулевой фон здесь принципиален: только так GetHbitmap сохраняет
             // попиксельную прозрачность, а не смешивает её с цветом подложки.
@@ -134,6 +187,7 @@ internal sealed class GlowBandWindow : Form
 
             _surfaceReady = true;
             _lastAlpha = -1;
+            _lastOffset = -1;
         }
         catch (Exception ex)
         {
@@ -143,19 +197,45 @@ internal sealed class GlowBandWindow : Form
     }
 
     /// <summary>
-    /// Рисует профиль яркости поперёк полосы и переход цвета вдоль неё.
+    /// Рисует профиль яркости поперёк полосы и непрерывный цикл цветов вдоль неё.
     ///
-    /// Профиль — сумма узкой яркой линии у самого края и широкого мягкого ореола.
-    /// Одна лишь узкая линия выглядит как подсветка монитора, один лишь ореол —
-    /// как мутное пятно; вместе они дают ту самую каёмку.
+    /// Профиль намеренно мягкий и широкий: узкая яркая линия у самой кромки
+    /// выглядит как подсветка монитора, а нужен ореол — свет, будто идущий
+    /// из-за края экрана. Поэтому основная доля яркости отдана пологой
+    /// составляющей, а резкая лишь подчёркивает кромку.
     /// </summary>
-    private void DrawGlow(Bitmap bitmap, Color from, Color to)
+    private void DrawGlow(Bitmap bitmap, Color[] palette, bool horizontal, int depth, int bandLength)
     {
         var width = bitmap.Width;
         var height = bitmap.Height;
-        var horizontal = _edge is Edge.Top or Edge.Bottom;
-        var depth = horizontal ? height : width;
-        if (depth <= 0) return;
+
+        // Профиль поперёк полосы — по одному значению на строку или столбец.
+        var profile = new double[depth];
+        for (int d = 0; d < depth; d++)
+        {
+            // t = 1 у самой кромки экрана, 0 — в глубине.
+            var raw = (d + 0.5) / depth;
+            var t = _edge is Edge.Top or Edge.Left ? 1.0 - raw : raw;
+
+            profile[d] = Math.Clamp(0.34 * Math.Pow(t, 3.4) + 0.66 * Math.Pow(t, 1.15), 0, 1);
+        }
+
+        // Цвета вдоль полосы считаем заранее: во внутреннем цикле остаётся
+        // только выборка и умножение, иначе на 4K сборка картинки заметно тормозит.
+        var lengthPixels = horizontal ? width : height;
+        var colors = new Color[lengthPixels];
+
+        // Полтора оборота палитры на длину полосы: на каждой стороне видно
+        // несколько оттенков сразу, а не один сплошной цвет.
+        const double Cycles = 1.5;
+
+        for (int i = 0; i < lengthPixels; i++)
+        {
+            // Позиция считается по длине полосы, а не картинки, — тогда при
+            // прокрутке цвета переходят через край без стыка.
+            var position = (i % Math.Max(1, bandLength)) / (double)Math.Max(1, bandLength);
+            colors[i] = SamplePalette(palette, position * Cycles);
+        }
 
         var data = bitmap.LockBits(
             new Rectangle(0, 0, width, height),
@@ -168,40 +248,24 @@ internal sealed class GlowBandWindow : Form
             {
                 var scan0 = (byte*)data.Scan0;
 
-                // Профиль поперёк полосы считаем один раз на строку/столбец.
-                var profile = new double[depth];
-                for (int d = 0; d < depth; d++)
-                {
-                    // t = 1 у самой кромки экрана, 0 — в глубине.
-                    var raw = (d + 0.5) / depth;
-                    var t = _edge is Edge.Top or Edge.Left ? 1.0 - raw : raw;
-
-                    profile[d] = Math.Clamp(0.82 * Math.Pow(t, 2.6) + 0.18 * Math.Pow(t, 0.9), 0, 1);
-                }
-
                 for (int y = 0; y < height; y++)
                 {
                     var row = scan0 + y * data.Stride;
+                    var rowColor = horizontal ? Color.Empty : colors[y];
+                    var rowAlpha = horizontal ? profile[Math.Min(y, depth - 1)] : 0;
 
                     for (int x = 0; x < width; x++)
                     {
-                        var d = horizontal ? y : x;
-                        var alpha = profile[d];
-
-                        // Доля пути вдоль полосы — по ней смешиваются цвета углов.
-                        var along = ColorPosition(x, y, width, height);
-
-                        var r = (byte)(from.R + (to.R - from.R) * along);
-                        var g = (byte)(from.G + (to.G - from.G) * along);
-                        var b = (byte)(from.B + (to.B - from.B) * along);
+                        var color = horizontal ? colors[x] : rowColor;
+                        var alpha = horizontal ? rowAlpha : profile[Math.Min(x, depth - 1)];
 
                         var a = (byte)(alpha * 255.0);
 
                         // Формат premultiplied: цвет уже умножен на прозрачность.
                         var pixel = row + x * 4;
-                        pixel[0] = (byte)(b * a / 255);
-                        pixel[1] = (byte)(g * a / 255);
-                        pixel[2] = (byte)(r * a / 255);
+                        pixel[0] = (byte)(color.B * a / 255);
+                        pixel[1] = (byte)(color.G * a / 255);
+                        pixel[2] = (byte)(color.R * a / 255);
                         pixel[3] = a;
                     }
                 }
@@ -213,22 +277,33 @@ internal sealed class GlowBandWindow : Form
         }
     }
 
-    /// <summary>
-    /// Положение точки вдоль полосы, 0..1. Направления подобраны так, чтобы
-    /// цвета переходили друг в друга непрерывно по кругу: верх слева направо,
-    /// правая сторона сверху вниз, низ справа налево, левая снизу вверх.
-    /// </summary>
-    private double ColorPosition(int x, int y, int width, int height) => _edge switch
+    /// <summary>Цвет в точке замкнутой палитры. Дробная часть позиции — доля пути между соседними цветами.</summary>
+    private static Color SamplePalette(Color[] palette, double position)
     {
-        Edge.Top => width <= 1 ? 0 : (double)x / (width - 1),
-        Edge.Right => height <= 1 ? 0 : (double)y / (height - 1),
-        Edge.Bottom => width <= 1 ? 0 : 1.0 - (double)x / (width - 1),
-        Edge.Left => height <= 1 ? 0 : 1.0 - (double)y / (height - 1),
-        _ => 0,
-    };
+        if (palette.Length == 0) return Color.White;
+        if (palette.Length == 1) return palette[0];
 
-    /// <summary>Задаёт яркость полосы. Ноль — окно скрывается.</summary>
-    public void SetAlpha(double alpha)
+        var scaled = position * palette.Length;
+        var index = (int)Math.Floor(scaled);
+        var fraction = scaled - index;
+
+        var from = palette[((index % palette.Length) + palette.Length) % palette.Length];
+        var to = palette[(((index + 1) % palette.Length) + palette.Length) % palette.Length];
+
+        // Сглаживание перехода: линейная доля даёт видимые полосы на стыках.
+        fraction = fraction * fraction * (3 - 2 * fraction);
+
+        return Color.FromArgb(
+            (int)(from.R + (to.R - from.R) * fraction),
+            (int)(from.G + (to.G - from.G) * fraction),
+            (int)(from.B + (to.B - from.B) * fraction));
+    }
+
+    /// <summary>
+    /// Задаёт яркость полосы и смещение цветов. Ноль яркости — окно скрывается.
+    /// </summary>
+    /// <param name="flow">Доля прокрутки цветов, 0..1. Именно она даёт перелив.</param>
+    public void SetFrame(double alpha, double flow)
     {
         if (!_surfaceReady || IsDisposed) return;
 
@@ -240,27 +315,30 @@ internal sealed class GlowBandWindow : Form
             return;
         }
 
-        if (!_visible)
-        {
-            Win32.ShowWindow(Handle, Win32.SW_SHOWNOACTIVATE);
-            Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
-                Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
-            _visible = true;
-            _lastAlpha = -1;                 // первый показ обязан отрисоваться
-        }
+        var offset = _cycleLength <= 0
+            ? 0
+            : (int)(((flow % 1.0) + 1.0) % 1.0 * _cycleLength);
 
         // Разница меньше одного шага прозрачности глазу недоступна, а обновление
-        // слоистого окна стоит передачи всей картинки видеокарте. В покое
-        // это экономит вообще всё.
-        if (value == _lastAlpha) return;
+        // слоистого окна стоит передачи картинки видеокарте. В покое это
+        // экономит вообще всё.
+        if (_visible && value == _lastAlpha && offset == _lastOffset) return;
+
         _lastAlpha = value;
+        _lastOffset = offset;
 
         var screenDc = Win32.GetDC(IntPtr.Zero);
         try
         {
             var destination = new Win32.POINT { X = _bounds.X, Y = _bounds.Y };
             var size = new Win32.SIZE { Cx = _bounds.Width, Cy = _bounds.Height };
-            var source = new Win32.POINT { X = 0, Y = 0 };
+
+            var horizontal = _edge is Edge.Top or Edge.Bottom;
+            var source = new Win32.POINT
+            {
+                X = horizontal ? offset : 0,
+                Y = horizontal ? 0 : offset,
+            };
 
             var blend = new Win32.BLENDFUNCTION
             {
@@ -270,13 +348,46 @@ internal sealed class GlowBandWindow : Form
                 AlphaFormat = Win32.AC_SRC_ALPHA,
             };
 
-            Win32.UpdateLayeredWindow(
+            // Содержимое задаётся до показа окна: иначе в первом кадре
+            // мелькнёт то, что осталось в памяти видеокарты.
+            var ok = Win32.UpdateLayeredWindow(
                 Handle, screenDc, ref destination, ref size,
                 _memoryDc, ref source, 0, ref blend, Win32.ULW_ALPHA);
+
+            if (!ok)
+            {
+                LastError = Marshal.GetLastWin32Error();
+
+                // Один раз, а не каждый кадр: иначе журнал за минуту вырастет
+                // до сотен мегабайт и утащит за собой диск.
+                if (!_failureLogged)
+                {
+                    _failureLogged = true;
+                    Log.Error($"отрисовка свечения ({_edge}) отклонена Windows, код {LastError}", "overlay");
+                }
+
+                return;
+            }
+
+            LastError = 0;
+            FramesDrawn++;
+
+            if (!_visible)
+            {
+                Win32.ShowWindow(Handle, Win32.SW_SHOWNOACTIVATE);
+                Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
+                    Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+
+                _visible = true;
+            }
         }
         catch (Exception ex)
         {
-            Log.Debug($"обновление свечения не прошло: {ex.Message}", "overlay");
+            if (!_failureLogged)
+            {
+                _failureLogged = true;
+                Log.Error($"сбой отрисовки свечения ({_edge})", ex, "overlay");
+            }
         }
         finally
         {
@@ -287,7 +398,10 @@ internal sealed class GlowBandWindow : Form
     public void HideBand()
     {
         if (!_visible || IsDisposed) return;
+
         _visible = false;
+        _lastAlpha = -1;
+
         try { Win32.ShowWindow(Handle, Win32.SW_HIDE); } catch { }
     }
 

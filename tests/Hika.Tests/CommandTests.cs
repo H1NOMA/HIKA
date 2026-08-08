@@ -84,6 +84,26 @@ public class CommandParserTests
         Assert.Equal(IntentKind.Launch, CommandParser.Parse("запусти диспетчер задач").Kind);
     }
 
+    [Theory]
+    // «Запусти» снимает неоднозначность: человек говорит о программе,
+    // и в поиск такая команда уходить не должна ни при каких обстоятельствах.
+    [InlineData("запусти халдайверс два")]
+    [InlineData("открой стим")]
+    [InlineData("включи обс")]
+    public void ЯвныйГлаголОтмечается(string command)
+    {
+        var intent = CommandParser.Parse(command);
+
+        Assert.Equal(IntentKind.Launch, intent.Kind);
+        Assert.True(intent.ExplicitVerb, $"«{command}» — глагол не отмечен как явный");
+    }
+
+    [Fact]
+    public void БезГлаголаПризнакаНет()
+    {
+        Assert.False(CommandParser.Parse("ютуб").ExplicitVerb);
+    }
+
     [Fact]
     public void ГлаголБезЦелиНеДаётНамерения()
     {

@@ -29,6 +29,17 @@ public sealed record Intent(IntentKind Kind, string Argument = "", double Confid
 {
     public static readonly Intent None = new(IntentKind.None);
 
+    /// <summary>
+    /// Человек произнёс явный глагол запуска: «запусти», «открой», «включи».
+    ///
+    /// Это меняет всё дальнейшее поведение. Сказавший «запусти Helldivers 2»
+    /// хочет запустить игру, а не почитать про неё в интернете — и если такая
+    /// команда не нашлась в каталоге, правильно признать неудачу, а не открыть
+    /// браузер с поисковой выдачей. Уход в поиск уместен, только когда цель
+    /// названа без глагола и намерение неочевидно.
+    /// </summary>
+    public bool ExplicitVerb { get; init; }
+
     public bool IsActionable => Kind != IntentKind.None;
 
     public override string ToString()
