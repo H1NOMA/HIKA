@@ -96,6 +96,8 @@ build\Hika.exe
 фотошоп → fotoshop     photoshop → fotoshop     совпало точно
 ворд    → vord         word      → vord         совпало точно
 твич    → tvich        twitch    → tvich        совпало точно
+стим    → stim         steam     → stim         совпало точно
+гугл    → gugl         google    → gugl         совпало точно
 хром    → hrom         chrome    → chrom        разница в один символ
 ```
 

@@ -97,7 +97,11 @@ public static partial class Hallucinations
 
         // Хвост субтитров может приехать вместе с полезным текстом.
         if (probe.Contains("dimatorzok")) return true;
-        if (probe.Contains("субтитры") && probe.Contains("редактор")) return true;
+
+        // По основе, а не по словоформе: в выдаче встречается и «субтитры»,
+        // и «субтитров», и «субтитрами».
+        if (probe.Contains("субтитр") && (probe.Contains("редактор") || probe.Contains("корректор")))
+            return true;
 
         // Одна повторяющаяся буква или слог: «ааааа», «та-та-та».
         if (IsMonotonous(probe)) return true;

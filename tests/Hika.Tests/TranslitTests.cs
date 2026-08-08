@@ -20,6 +20,11 @@ public class TranslitTests
     [InlineData("телеграм", "telegram")]
     [InlineData("дискорд", "discord")]
     [InlineData("эксплорер", "explorer")]
+    // Английские гласные сочетания, звучащие по-русски одним звуком.
+    [InlineData("стим", "steam")]
+    [InlineData("гугл", "google")]
+    [InlineData("спидтест", "speedtest")]
+    [InlineData("тимс", "teams")]
     public void СовпадаетТочно(string russian, string english)
     {
         Assert.Equal(Translit.Fold(Translit.ToLatin(russian)), Translit.Fold(english));
@@ -30,8 +35,6 @@ public class TranslitTests
     // нечёткое сравнение переживает без труда.
     [InlineData("хром", "chrome")]
     [InlineData("ютуб", "youtube")]
-    [InlineData("стим", "steam")]
-    [InlineData("гугл", "google")]
     [InlineData("спотифай", "spotify")]
     [InlineData("гитхаб", "github")]
     public void СовпадаетДостаточноБлизко(string russian, string english)

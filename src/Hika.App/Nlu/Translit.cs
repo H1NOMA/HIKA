@@ -93,6 +93,17 @@ public static class Translit
                     // разойдётся с английским: «твич» дало бы tvikh,
                     // а «twitch» — tvich.
                     case "ch": sb.Append("ch"); i++; continue;
+
+                    // Английские гласные сочетания, которые по-русски звучат
+                    // одним звуком. Именно так их и произносят:
+                    //   steam     -> стим       ea -> и
+                    //   speedtest -> спидтест   ee -> и
+                    //   google    -> гугл       oo -> у
+                    // Без этих трёх правил перечисленное не находилось бы
+                    // ничем, кроме заранее прописанного синонима.
+                    case "ea": sb.Append('i'); i++; continue;
+                    case "ee": sb.Append('i'); i++; continue;
+                    case "oo": sb.Append('u'); i++; continue;
                 }
             }
 
