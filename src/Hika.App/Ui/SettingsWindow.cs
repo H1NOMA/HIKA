@@ -27,6 +27,7 @@ public sealed class SettingsWindow : Form
     private readonly Action<HikaConfig> _onApply;
     private readonly Action _onLiveListen;
     private readonly Action _onDiagnostics;
+    private readonly Action _onTestOverlay;
     private readonly Func<(string Status, string Microphone, string Recognizer, int CatalogSize)> _statusSource;
 
     private HikaConfig _config;
@@ -73,11 +74,13 @@ public sealed class SettingsWindow : Form
     private ToggleSwitch _indexApps = null!;
     private ToggleSwitch _logTranscripts = null!;
     private ToggleSwitch _autostart = null!;
+    private ToggleSwitch _runAsAdmin = null!;
     private ToggleSwitch _startMuted = null!;
     private DropDownField _logLevel = null!;
 
     private string _initialModel = "";
     private string _initialDevice = "";
+    private bool _initialRunAsAdmin;
 
     public SettingsWindow(
         ConfigStore store,
@@ -85,7 +88,8 @@ public sealed class SettingsWindow : Form
         Func<(string, string, string, int)> statusSource,
         Action<HikaConfig> onApply,
         Action onLiveListen,
-        Action onDiagnostics)
+        Action onDiagnostics,
+        Action onTestOverlay)
     {
         _store = store;
         _levelSource = levelSource;
@@ -93,6 +97,7 @@ public sealed class SettingsWindow : Form
         _onApply = onApply;
         _onLiveListen = onLiveListen;
         _onDiagnostics = onDiagnostics;
+        _onTestOverlay = onTestOverlay;
 
         _config = store.Current;
         _personaId = Personas.ById(_config.Persona).Id;
@@ -371,7 +376,12 @@ public sealed class SettingsWindow : Form
         _overlayEnabled = new ToggleSwitch();
 
         _monitors = new DropDownField();
-        _monitors.SetItems(new[] { ("Только главный", "primary"), ("Все мониторы", "all") });
+        _monitors.SetItems(new[]
+        {
+            ("Все мониторы", "all"),
+            ("Только главный", "primary"),
+            ("Тот, где сейчас мышь", "active"),
+        });
 
         _thickness = new SliderField { Minimum = 0.03, Maximum = 0.2, Step = 0.005, Format = v => $"{v * 100:0.0} %" };
         _maxOpacity = new SliderField { Minimum = 0.1, Maximum = 1.0, Step = 0.05, Format = v => $"{v * 100:0} %" };
@@ -381,8 +391,14 @@ public sealed class SettingsWindow : Form
         _personaColors = new ToggleSwitch();
         _excludeCapture = new ToggleSwitch();
 
+        var test = new FlatButton("Показать свечение сейчас", primary: true) { Width = 230 };
+        test.Click += (_, _) => _onTestOverlay();
+
         return Stack(
             new SectionTitle("Свечение по краям", "Слабое, пока непонятно, к вам ли обращаются. Разгорается и живёт в такт голосу, когда прозвучало имя."),
+            new SettingRow("Проверка",
+                "Прогонит кайму по всем состояниям, не трогая микрофон. Если после этого по краям ничего не появилось — дело в отрисовке, а не в распознавании.",
+                test, 230),
             new SettingRow("Показывать свечение", "", _overlayEnabled, 46),
             new SettingRow("Мониторы", "", _monitors),
             new SettingRow("Толщина каймы",
@@ -417,6 +433,7 @@ public sealed class SettingsWindow : Form
         _indexApps = new ToggleSwitch();
         _logTranscripts = new ToggleSwitch();
         _autostart = new ToggleSwitch();
+        _runAsAdmin = new ToggleSwitch();
         _startMuted = new ToggleSwitch();
 
         _logLevel = new DropDownField();
@@ -445,6 +462,12 @@ public sealed class SettingsWindow : Form
             new SectionTitle("Запуск"),
             new SettingRow("Запускать вместе с Windows", "", _autostart, 46),
             new SettingRow("Стартовать с выключенным микрофоном", "", _startMuted, 46),
+            new SettingRow("Права администратора",
+                "Нужны ровно для одного: управлять окнами программ, запущенных от администратора. " +
+                "В остальном только мешают — антивирусы строже, перетаскивание файлов из проводника " +
+                "перестаёт работать, при каждом запуске появляется запрос UAC. На доступ к микрофону " +
+                "не влияют никак. Применится после перезапуска.",
+                _runAsAdmin, 46),
             new SectionTitle("Журнал"),
             new SettingRow("Записывать распознанный текст",
                 "Незаменимо при настройке и совершенно не нужно потом. Это ваша речь, которая ложится на диск, — выключите, когда всё заработает.",
@@ -507,6 +530,7 @@ public sealed class SettingsWindow : Form
 
         _initialModel = c.Speech.Model ?? "";
         _initialDevice = c.Audio.Device ?? "";
+        _initialRunAsAdmin = c.Behavior.RunAsAdmin;
 
         SelectPersona(Personas.ById(c.Persona).Id);
 
@@ -542,7 +566,8 @@ public sealed class SettingsWindow : Form
         _matchThreshold.Value = c.Behavior.MatchThreshold;
         _indexApps.Checked = c.Behavior.IndexInstalledApps;
         _logTranscripts.Checked = c.Behavior.LogTranscripts;
-        _autostart.Checked = AutostartManager.IsEnabled();
+        _autostart.Checked = AutostartManager.IsAnyEnabled();
+        _runAsAdmin.Checked = c.Behavior.RunAsAdmin;
         _startMuted.Checked = c.Behavior.StartMuted;
         _logLevel.Value = c.Behavior.LogLevel ?? "info";
 
@@ -597,8 +622,9 @@ public sealed class SettingsWindow : Form
         c.Behavior.StartMuted = _startMuted.Checked;
         c.Behavior.LogLevel = _logLevel.Value;
         c.Behavior.Autostart = _autostart.Checked;
+        c.Behavior.RunAsAdmin = _runAsAdmin.Checked;
 
-        AutostartManager.Set(_autostart.Checked);
+        AutostartManager.Apply(_autostart.Checked, _runAsAdmin.Checked);
 
         _store.Save();
         _config = c;
@@ -608,14 +634,17 @@ public sealed class SettingsWindow : Form
 
         // Модель и звуковое устройство подхватываются только при старте:
         // менять их на живом пайплайне — значит рвать поток посреди фразы.
-        var needsRestart = _model.Value != _initialModel || _device.Value != _initialDevice;
+        var needsRestart = _model.Value != _initialModel
+                           || _device.Value != _initialDevice
+                           || _runAsAdmin.Checked != _initialRunAsAdmin;
 
         SetNotice(needsRestart
-            ? "Сохранено. Смена модели или микрофона применится после перезапуска HIKA."
+            ? "Сохранено. Модель, микрофон и права применятся после перезапуска HIKA."
             : "Сохранено — всё уже работает.");
 
         _initialModel = _model.Value;
         _initialDevice = _device.Value;
+        _initialRunAsAdmin = _runAsAdmin.Checked;
     }
 
     private void SetNotice(string text)

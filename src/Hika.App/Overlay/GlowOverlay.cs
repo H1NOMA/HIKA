@@ -101,6 +101,58 @@ public sealed class GlowOverlay : IDisposable
     /// <summary>Текущая громкость голоса, 0..1. Приходит с потока звука тридцать раз в секунду.</summary>
     public void SetLevel(double level) => Volatile.Write(ref _level, Math.Clamp(level, 0, 1));
 
+    /// <summary>
+    /// Прогоняет свечение по всем состояниям, не трогая микрофон.
+    ///
+    /// Отвечает на вопрос, который иначе не отделить: «кайма не появляется»
+    /// может значить и что сломана отрисовка, и что до неё просто не доходит
+    /// очередь, потому что молчит распознавание. Здесь очередь ни при чём —
+    /// если после этой проверки экран не засветился, дело точно в отрисовке.
+    /// </summary>
+    public async Task RunSelfTestAsync(CancellationToken ct = default)
+    {
+        if (!_running)
+        {
+            Log.Warn("проверка свечения: оно выключено в настройках", "overlay");
+            return;
+        }
+
+        Log.Info("проверка свечения: начало", "overlay");
+
+        try
+        {
+            SetState(OverlayState.Sensing);
+            await Task.Delay(1200, ct).ConfigureAwait(false);
+
+            SetState(OverlayState.Listening);
+
+            // Изображаем голос: кайма должна дышать и раскачиваться,
+            // а не просто гореть ровным светом.
+            for (int i = 0; i < 90 && !ct.IsCancellationRequested; i++)
+            {
+                SetLevel(0.35 + 0.6 * Math.Abs(Math.Sin(i * 0.19)));
+                await Task.Delay(33, ct).ConfigureAwait(false);
+            }
+
+            SetLevel(0);
+            SetState(OverlayState.Thinking);
+            await Task.Delay(1200, ct).ConfigureAwait(false);
+
+            SetState(OverlayState.Success);
+            await Task.Delay(1200, ct).ConfigureAwait(false);
+
+            SetState(OverlayState.Hidden);
+            Log.Info("проверка свечения: конец", "overlay");
+        }
+        catch (OperationCanceledException)
+        {
+            SetState(OverlayState.Hidden);
+        }
+    }
+
+    /// <summary>Сколько окон свечения реально создано. Ноль — значит, показывать нечего.</summary>
+    public int BandCount => _bands.Count;
+
     // ---- Поток отрисовки -------------------------------------------------
 
     private void UiThreadBody()
@@ -147,9 +199,15 @@ public sealed class GlowOverlay : IDisposable
     {
         var monitors = MonitorEnumerator.Enumerate();
 
-        var targets = _config.Monitors.Equals("all", StringComparison.OrdinalIgnoreCase)
-            ? monitors
-            : monitors.Where(m => m.IsPrimary).DefaultIfEmpty(monitors[0]).ToList();
+        Log.Info($"экранов найдено: {monitors.Count}", "overlay");
+        foreach (var m in monitors) Log.Info($"  {m}", "overlay");
+
+        // «primary» — только главный, всё остальное («all», «active») строит
+        // окна на всех экранах. В режиме «active» лишние гасятся при отрисовке:
+        // создать окна заранее дешевле, чем пересобирать их на каждое движение мыши.
+        var targets = _config.Monitors.Equals("primary", StringComparison.OrdinalIgnoreCase)
+            ? monitors.Where(m => m.IsPrimary).DefaultIfEmpty(monitors[0]).ToList()
+            : monitors;
 
         foreach (var monitor in targets)
         {
@@ -160,8 +218,9 @@ public sealed class GlowOverlay : IDisposable
             foreach (Edge edge in Enum.GetValues<Edge>())
             {
                 var bounds = BandBounds(monitor, edge, thickness);
+                var screen = new Rectangle(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
 
-                var band = new GlowBandWindow(edge, bounds);
+                var band = new GlowBandWindow(edge, bounds, screen);
                 _ = band.Handle;                       // создать окно, но не показывать
 
                 band.ApplyExcludeFromCapture(_config.ExcludeFromCapture);
@@ -173,6 +232,9 @@ public sealed class GlowOverlay : IDisposable
 
         _anchor = _bands.FirstOrDefault();
         _colorGroup = -1;                              // заставить построить картинку при первом кадре
+
+        if (_bands.Count == 0)
+            Log.Error("не создано ни одного окна свечения — показывать будет нечего", "overlay");
     }
 
     private static Rectangle BandBounds(MonitorGeometry m, Edge edge, int thickness) => edge switch
@@ -285,9 +347,17 @@ public sealed class GlowOverlay : IDisposable
                 _current[edge] += (target - _current[edge]) * coefficient;
             }
 
+            var activeOnly = _config.Monitors.Equals("active", StringComparison.OrdinalIgnoreCase);
+            var cursor = activeOnly ? CursorScreen() : Rectangle.Empty;
+
             foreach (var band in _bands)
             {
                 var value = _current[(int)band.Edge];
+
+                // В режиме активного экрана светится только тот монитор,
+                // на котором сейчас указатель мыши.
+                if (activeOnly && band.MonitorBounds != cursor) value = 0;
+
                 band.SetAlpha(value < 0.004 ? 0 : value);
             }
         }
@@ -299,6 +369,41 @@ public sealed class GlowOverlay : IDisposable
         {
             _framePending = false;
         }
+    }
+
+    private Rectangle _cachedCursorScreen = Rectangle.Empty;
+    private double _cursorCheckedAt = -1;
+
+    /// <summary>
+    /// Границы экрана, на котором сейчас указатель мыши.
+    /// Опрашивается не чаще двух раз в секунду: положение мыши для этой
+    /// задачи меняется медленно, а вызов на каждом кадре — лишняя работа.
+    /// </summary>
+    private Rectangle CursorScreen()
+    {
+        var now = _clock.Elapsed.TotalSeconds;
+        if (now - _cursorCheckedAt < 0.5 && _cachedCursorScreen != Rectangle.Empty) return _cachedCursorScreen;
+
+        _cursorCheckedAt = now;
+
+        try
+        {
+            var point = Cursor.Position;
+
+            foreach (var band in _bands)
+            {
+                if (band.MonitorBounds.Contains(point))
+                {
+                    _cachedCursorScreen = band.MonitorBounds;
+                    return _cachedCursorScreen;
+                }
+            }
+        }
+        catch { /* положение мыши бывает недоступно на заблокированном экране */ }
+
+        // Не нашли — пусть светится хоть что-то, чем ничего.
+        _cachedCursorScreen = _bands.Count > 0 ? _bands[0].MonitorBounds : Rectangle.Empty;
+        return _cachedCursorScreen;
     }
 
     /// <summary>Пересобирает картинку, только когда сменилась группа цветов.</summary>

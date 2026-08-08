@@ -21,7 +21,7 @@ internal static class Program
         var isCommandLine = args.Any(a =>
             a is "--diagnose" or "-d" or "--listen" or "-l" or "--list-audio"
                  or "--help" or "-h" or "--version"
-                 or "--enable-autostart" or "--disable-autostart");
+                 or "--enable-autostart" or "--disable-autostart" or "--test-overlay");
 
         if (isCommandLine) AttachToParentConsole();
 
@@ -101,10 +101,13 @@ internal static class Program
         if (args.Contains("--listen") || args.Contains("-l"))
             return LiveListen.RunAsync(args).GetAwaiter().GetResult();
 
-        return RunTray(store, config, launchedByWindows: args.Contains("--autostart"));
+        if (args.Contains("--test-overlay"))
+            return TestOverlay(config);
+
+        return RunTray(store, config, args, launchedByWindows: args.Contains("--autostart"));
     }
 
-    private static int RunTray(ConfigStore store, HikaConfig config, bool launchedByWindows)
+    private static int RunTray(ConfigStore store, HikaConfig config, string[] args, bool launchedByWindows)
     {
         // Второй экземпляр — это второй открытый микрофон и две реакции на каждую
         // команду. Проверку делаем до всего остального.
@@ -121,8 +124,19 @@ internal static class Program
             return 0;
         }
 
+        // Повышение прав, если оно включено и мы ещё не повышены.
+        // Флаг перезапуска обязателен: без него отказ в UAC уводил бы
+        // программу в бесконечный круг запросов.
+        if (config.Behavior.RunAsAdmin && !Elevation.IsElevated && !args.Contains(Elevation.RelaunchFlag))
+        {
+            if (Elevation.RelaunchElevated(args)) return 0;
+            Log.Info("работаю с обычными правами", "startup");
+        }
+
         ApplicationConfiguration.Initialize();
         Ui.Theme.ApplyPersona(config.Persona);
+
+        if (Elevation.IsElevated) Log.Info("права администратора: есть", "startup");
 
         using var host = new AppHost(store);
         using var tray = new TrayIcon(config.Persona);
@@ -150,7 +164,8 @@ internal static class Program
                         tray.UpdateState(host.State, host.Muted);
                     },
                     onLiveListen: () => LaunchInConsole(tray, "--listen"),
-                    onDiagnostics: () => LaunchInConsole(tray, "--diagnose"));
+                    onDiagnostics: () => LaunchInConsole(tray, "--diagnose"),
+                    onTestOverlay: () => host.TestOverlay());
             }
 
             return settings;
@@ -211,7 +226,8 @@ internal static class Program
             AutostartManager.Enable();
         }
 
-        if (config.Behavior.Autostart && !AutostartManager.IsEnabled()) AutostartManager.Enable();
+        if (config.Behavior.Autostart && !AutostartManager.IsAnyEnabled())
+            AutostartManager.Apply(true, config.Behavior.RunAsAdmin);
 
         var started = host.StartAsync().GetAwaiter().GetResult();
         tray.UpdateState(host.State, host.Muted);
@@ -224,6 +240,43 @@ internal static class Program
         }
 
         Application.Run();
+        return 0;
+    }
+
+    /// <summary>Показывает свечение без микрофона — отдельным экземпляром, из командной строки.</summary>
+    private static int TestOverlay(HikaConfig config)
+    {
+        Console.WriteLine(BuildInfo.Describe());
+        Console.WriteLine();
+        Console.WriteLine("Проверка свечения. Микрофон не используется.");
+        Console.WriteLine("Кайма должна пройти по кругу: слабое свечение, затем яркое");
+        Console.WriteLine("с пульсацией, затем бегущая волна и зелёная вспышка.");
+        Console.WriteLine();
+
+        using var overlay = new Overlay.GlowOverlay();
+        overlay.Start(config.Overlay, config.Persona);
+
+        // Окна создаются в своём потоке — дадим ему секунду.
+        Thread.Sleep(1000);
+
+        Console.WriteLine($"Окон свечения создано: {overlay.BandCount}");
+
+        if (overlay.BandCount == 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("НИ ОДНОГО ОКНА НЕ СОЗДАНО — показывать нечего.");
+            Console.WriteLine("Проверьте, что свечение включено в настройках. Подробности в журнале:");
+            Console.WriteLine("  " + AppPaths.LogDirectory);
+            return 1;
+        }
+
+        Console.WriteLine("Смотрите на экран…");
+        overlay.RunSelfTestAsync().GetAwaiter().GetResult();
+
+        Console.WriteLine();
+        Console.WriteLine("Готово. Если по краям ничего не появилось — дело в отрисовке,");
+        Console.WriteLine("и микрофон тут ни при чём. Пришлите журнал: " + AppPaths.LogDirectory);
+
         return 0;
     }
 
@@ -278,6 +331,7 @@ internal static class Program
                                     и что с ним стало. Лучший способ понять,
                                     почему команда не сработала
               --execute             вместе с --listen: ещё и выполнять команды
+              --test-overlay        показать свечение, не трогая микрофон
               --diagnose, -d        проверить всю цепочку и сохранить отчёт
               --seconds N           сколько секунд записывать при проверке (по умолчанию 6)
               --list-audio          показать доступные микрофоны

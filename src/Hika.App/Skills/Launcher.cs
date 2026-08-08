@@ -59,6 +59,25 @@ public static class Launcher
 
     private static SkillResult StartShell(string command, string args, string what, string? workingDirectory = null)
     {
+        // Если HIKA работает с правами администратора, запущенные ею программы
+        // унаследовали бы эти права — а этого нельзя допускать. Chrome в таком
+        // виде вообще откажется стартовать, остальные начнут вести себя странно.
+        // Отдаём запуск проводнику, и программа достаётся обычному пользователю.
+        //
+        // Аргументы командной строки этот способ не переносит, поэтому при
+        // их наличии идём обычным путём — с ключами запускаются в основном
+        // служебные вещи, где повышенные права как раз уместны.
+        if (Startup.Elevation.IsElevated && string.IsNullOrWhiteSpace(args))
+        {
+            if (Startup.Elevation.TryLaunchAsUser(command, workingDirectory))
+            {
+                Log.Info($"открыто: {what}", "launch");
+                return SkillResult.Ok(what);
+            }
+
+            // Проводник не справился — падаем на обычный запуск.
+        }
+
         try
         {
             var info = new ProcessStartInfo

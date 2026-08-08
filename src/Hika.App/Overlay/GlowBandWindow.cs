@@ -45,10 +45,14 @@ internal sealed class GlowBandWindow : Form
     /// </summary>
     public Rectangle BandBounds => _bounds;
 
-    public GlowBandWindow(Edge edge, Rectangle bounds)
+    /// <summary>Границы монитора, к которому относится полоса — для режима «активный экран».</summary>
+    public Rectangle MonitorBounds { get; }
+
+    public GlowBandWindow(Edge edge, Rectangle bounds, Rectangle monitorBounds)
     {
         _edge = edge;
         _bounds = bounds;
+        MonitorBounds = monitorBounds;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;

@@ -495,6 +495,9 @@ public sealed class AppHost : IDisposable
 
     // ---- Управление --------------------------------------------------------
 
+    /// <summary>Прогоняет свечение по всем состояниям — проверка без микрофона.</summary>
+    public void TestOverlay() => _ = Task.Run(() => _overlay.RunSelfTestAsync(_shutdown.Token));
+
     public void ToggleMute()
     {
         _microphone.Muted = !_microphone.Muted;
