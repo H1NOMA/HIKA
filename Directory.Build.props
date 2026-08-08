@@ -1,0 +1,29 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <Product>HIKA</Product>
+    <Company>HIKA</Company>
+    <Authors>HIKA</Authors>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Copyright>HIKA</Copyright>
+  </PropertyGroup>
+
+  <!--
+    Русский текст встречается в исходниках (каталог приложений, словари команд).
+    Явная кодировка исключает порчу кириллицы на машинах с не-UTF8 системной кодовой страницей.
+  -->
+  <PropertyGroup>
+    <CodePage>65001</CodePage>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <!-- 10.0.17763 = Windows 10 1809. Ниже этой версии нет нужного нам слоя композиции. -->
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>Hika</AssemblyName>
+    <RootNamespace>Hika</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Сборка мусора в фоновом режиме: пайплайн живёт постоянно, паузы недопустимы. -->
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Захват звука через WASAPI -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+
+    <!-- Распознавание речи: whisper.cpp под .NET -->
+    <PackageReference Include="Whisper.net" Version="1.8.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />
+
+    <!-- Silero VAD -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+  </ItemGroup>
+
+  <!--
+    Ускорение на видеокарте NVIDIA. Включается сборкой с -p:HikaCuda=true.
+    Требует установленного CUDA 12 runtime на машине.
+  -->
+  <ItemGroup Condition="'$(HikaCuda)' == 'true'">
+    <PackageReference Include="Whisper.net.Runtime.Cuda" Version="1.8.1" />
+  </ItemGroup>
+
+  <!-- Ускорение через Vulkan — работает и на AMD, и на Intel, и на NVIDIA. -->
+  <ItemGroup Condition="'$(HikaVulkan)' == 'true'">
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.8.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Catalog\catalog.default.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

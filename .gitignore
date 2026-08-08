@@ -1,0 +1,40 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+artifacts/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider / VS / VS Code
+.vs/
+.idea/
+.vscode/
+*.swp
+
+# NuGet
+*.nupkg
+packages/
+.nuget/
+
+# ML models — large binaries, downloaded at first run
+models/
+*.bin
+*.onnx
+!models/.gitkeep
+
+# Runtime state
+logs/
+*.log
+config.local.json
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini

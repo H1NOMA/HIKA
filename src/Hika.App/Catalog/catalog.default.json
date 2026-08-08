@@ -1,0 +1,264 @@
+{
+  "_comment": "Встроенный каталог HIKA. Не правьте этот файл — он перезаписывается при обновлении. Свои команды добавляйте в %APPDATA%\\HIKA\\catalog.json (тот же формат) или в раздел custom в config.json.",
+  "entries": [
+
+    { "id": "chrome", "kind": "app", "command": "chrome",
+      "paths": ["%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe", "%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe", "%LocalAppData%\\Google\\Chrome\\Application\\chrome.exe"],
+      "names": ["хром", "гугл хром", "хромиум", "chrome", "google chrome", "chromium", "браузер хром"] },
+
+    { "id": "firefox", "kind": "app", "command": "firefox",
+      "paths": ["%ProgramFiles%\\Mozilla Firefox\\firefox.exe", "%ProgramFiles(x86)%\\Mozilla Firefox\\firefox.exe"],
+      "names": ["фаерфокс", "файрфокс", "фаирфокс", "мозила", "мозилла", "лиса", "firefox", "mozilla", "mozilla firefox"] },
+
+    { "id": "edge", "kind": "app", "command": "msedge",
+      "paths": ["%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe", "%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"],
+      "names": ["эдж", "едж", "майкрософт эдж", "edge", "microsoft edge", "msedge"] },
+
+    { "id": "opera", "kind": "app", "command": "opera",
+      "paths": ["%LocalAppData%\\Programs\\Opera\\opera.exe", "%LocalAppData%\\Programs\\Opera GX\\opera.exe"],
+      "names": ["опера", "опера гх", "opera", "opera gx"] },
+
+    { "id": "yandexbrowser", "kind": "app", "command": "browser",
+      "paths": ["%LocalAppData%\\Yandex\\YandexBrowser\\Application\\browser.exe"],
+      "names": ["яндекс браузер", "ябраузер", "яндекс бразуер", "yandex browser", "yandexbrowser"] },
+
+    { "id": "word", "kind": "app", "command": "winword",
+      "paths": ["%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE", "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\WINWORD.EXE"],
+      "names": ["ворд", "вёрд", "верд", "микрософт ворд", "майкрософт ворд", "word", "microsoft word", "ms word", "документ ворд"] },
+
+    { "id": "excel", "kind": "app", "command": "excel",
+      "paths": ["%ProgramFiles%\\Microsoft Office\\root\\Office16\\EXCEL.EXE", "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\EXCEL.EXE"],
+      "names": ["эксель", "эксел", "ексель", "таблица", "excel", "microsoft excel", "ms excel"] },
+
+    { "id": "powerpoint", "kind": "app", "command": "powerpnt",
+      "paths": ["%ProgramFiles%\\Microsoft Office\\root\\Office16\\POWERPNT.EXE", "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\POWERPNT.EXE"],
+      "names": ["поверпоинт", "повер поинт", "презентация", "powerpoint", "power point", "pptx"] },
+
+    { "id": "outlook", "kind": "app", "command": "outlook",
+      "paths": ["%ProgramFiles%\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"],
+      "names": ["аутлук", "оутлук", "почта аутлук", "outlook", "microsoft outlook"] },
+
+    { "id": "onenote", "kind": "app", "command": "onenote",
+      "names": ["уаннот", "ван нот", "уан ноут", "onenote", "one note"] },
+
+    { "id": "teams", "kind": "app", "command": "ms-teams:",
+      "names": ["тимс", "тимз", "команды", "teams", "microsoft teams", "ms teams"] },
+
+    { "id": "notepad", "kind": "app", "command": "notepad",
+      "names": ["блокнот", "нотпад", "заметки", "notepad", "текстовый редактор"] },
+
+    { "id": "notepadpp", "kind": "app", "command": "notepad++",
+      "paths": ["%ProgramFiles%\\Notepad++\\notepad++.exe", "%ProgramFiles(x86)%\\Notepad++\\notepad++.exe"],
+      "names": ["нотпад плюс плюс", "нотепад плюс", "notepad++", "notepad plus plus"] },
+
+    { "id": "calculator", "kind": "app", "command": "calc",
+      "names": ["калькулятор", "калкулятор", "считалка", "calculator", "calc"] },
+
+    { "id": "explorer", "kind": "app", "command": "explorer",
+      "names": ["проводник", "эксплорер", "файлы", "мой компьютер", "этот компьютер", "папки", "explorer", "file explorer", "files"] },
+
+    { "id": "cmd", "kind": "app", "command": "cmd",
+      "names": ["командная строка", "консоль", "командник", "cmd", "command prompt"] },
+
+    { "id": "powershell", "kind": "app", "command": "powershell",
+      "names": ["пауэршелл", "повершелл", "павершел", "powershell", "power shell"] },
+
+    { "id": "terminal", "kind": "app", "command": "wt",
+      "names": ["терминал", "виндовс терминал", "terminal", "windows terminal"] },
+
+    { "id": "taskmanager", "kind": "app", "command": "taskmgr",
+      "names": ["диспетчер задач", "таск менеджер", "диспетчер", "task manager", "taskmgr"] },
+
+    { "id": "settings", "kind": "app", "command": "ms-settings:",
+      "names": ["настройки", "параметры", "настройки виндовс", "параметры виндовс", "settings", "windows settings"] },
+
+    { "id": "controlpanel", "kind": "app", "command": "control",
+      "names": ["панель управления", "контрольная панель", "control panel", "control"] },
+
+    { "id": "devicemanager", "kind": "app", "command": "devmgmt.msc",
+      "names": ["диспетчер устройств", "устройства", "device manager"] },
+
+    { "id": "paint", "kind": "app", "command": "mspaint",
+      "names": ["паинт", "пейнт", "рисовалка", "paint", "ms paint"] },
+
+    { "id": "snippingtool", "kind": "app", "command": "snippingtool",
+      "names": ["ножницы", "снимок экрана", "скриншотер", "snipping tool", "snip"] },
+
+    { "id": "vscode", "kind": "app", "command": "code",
+      "paths": ["%LocalAppData%\\Programs\\Microsoft VS Code\\Code.exe", "%ProgramFiles%\\Microsoft VS Code\\Code.exe"],
+      "names": ["вс код", "вскод", "вижуал студио код", "визуал студио код", "код", "vs code", "vscode", "visual studio code"] },
+
+    { "id": "visualstudio", "kind": "app", "command": "devenv",
+      "names": ["вижуал студия", "визуал студио", "студия", "visual studio", "devenv"] },
+
+    { "id": "telegram", "kind": "app", "command": "telegram",
+      "paths": ["%AppData%\\Telegram Desktop\\Telegram.exe", "%LocalAppData%\\Telegram Desktop\\Telegram.exe", "%ProgramFiles%\\Telegram Desktop\\Telegram.exe"],
+      "names": ["телеграм", "телеграмм", "телега", "тг", "telegram", "tg"] },
+
+    { "id": "discord", "kind": "app", "command": "discord",
+      "paths": ["%LocalAppData%\\Discord\\Update.exe"], "args": "--processStart Discord.exe",
+      "names": ["дискорд", "дискорт", "диск", "discord"] },
+
+    { "id": "steam", "kind": "app", "command": "steam",
+      "paths": ["%ProgramFiles(x86)%\\Steam\\steam.exe", "%ProgramFiles%\\Steam\\steam.exe"],
+      "names": ["стим", "steam"] },
+
+    { "id": "spotify", "kind": "app", "command": "spotify",
+      "paths": ["%AppData%\\Spotify\\Spotify.exe", "%LocalAppData%\\Microsoft\\WindowsApps\\Spotify.exe"],
+      "names": ["спотифай", "спотифи", "spotify"] },
+
+    { "id": "obs", "kind": "app", "command": "obs64",
+      "paths": ["%ProgramFiles%\\obs-studio\\bin\\64bit\\obs64.exe"],
+      "names": ["обс", "обс студио", "obs", "obs studio"] },
+
+    { "id": "photoshop", "kind": "app", "command": "photoshop",
+      "names": ["фотошоп", "фш", "photoshop", "adobe photoshop", "ps"] },
+
+    { "id": "vlc", "kind": "app", "command": "vlc",
+      "paths": ["%ProgramFiles%\\VideoLAN\\VLC\\vlc.exe", "%ProgramFiles(x86)%\\VideoLAN\\VLC\\vlc.exe"],
+      "names": ["влц", "влс", "виэлси", "vlc", "vlc player"] },
+
+    { "id": "winrar", "kind": "app", "command": "winrar",
+      "paths": ["%ProgramFiles%\\WinRAR\\WinRAR.exe"],
+      "names": ["винрар", "winrar", "рар"] },
+
+    { "id": "7zip", "kind": "app", "command": "7zFM",
+      "paths": ["%ProgramFiles%\\7-Zip\\7zFM.exe"],
+      "names": ["семь зип", "7 зип", "7zip", "7 zip", "seven zip"] },
+
+    { "id": "skype", "kind": "app", "command": "skype",
+      "names": ["скайп", "skype"] },
+
+    { "id": "zoom", "kind": "app", "command": "zoom",
+      "paths": ["%AppData%\\Zoom\\bin\\Zoom.exe"],
+      "names": ["зум", "зумм", "zoom"] },
+
+    { "id": "store", "kind": "app", "command": "ms-windows-store:",
+      "names": ["магазин", "магазин приложений", "майкрософт стор", "microsoft store", "store"] },
+
+    { "id": "photos", "kind": "app", "command": "ms-photos:",
+      "names": ["фотографии", "фото", "галерея", "photos"] },
+
+    { "id": "camera", "kind": "app", "command": "microsoft.windows.camera:",
+      "names": ["камера", "вебкамера", "camera"] },
+
+    { "id": "regedit", "kind": "app", "command": "regedit",
+      "names": ["реестр", "редактор реестра", "regedit", "registry"] },
+
+
+    { "id": "youtube", "kind": "site", "command": "https://www.youtube.com/",
+      "names": ["ютуб", "ютьюб", "ютюб", "ю туб", "ютуп", "тытруба", "youtube", "you tube"] },
+
+    { "id": "google", "kind": "site", "command": "https://www.google.com/",
+      "names": ["гугл", "гугль", "гугле", "google"] },
+
+    { "id": "yandex", "kind": "site", "command": "https://ya.ru/",
+      "names": ["яндекс", "яндек", "yandex"] },
+
+    { "id": "gmail", "kind": "site", "command": "https://mail.google.com/",
+      "names": ["гмейл", "джимейл", "почта гугл", "гугл почта", "gmail"] },
+
+    { "id": "vk", "kind": "site", "command": "https://vk.com/",
+      "names": ["вконтакте", "вк", "в контакте", "вконтак", "vk", "vkontakte"] },
+
+    { "id": "telegramweb", "kind": "site", "command": "https://web.telegram.org/",
+      "names": ["телеграм веб", "веб телеграм", "telegram web"] },
+
+    { "id": "twitch", "kind": "site", "command": "https://www.twitch.tv/",
+      "names": ["твич", "тwитч", "twitch"] },
+
+    { "id": "github", "kind": "site", "command": "https://github.com/",
+      "names": ["гитхаб", "гитхуб", "гит хаб", "гит", "github", "git hub"] },
+
+    { "id": "chatgpt", "kind": "site", "command": "https://chatgpt.com/",
+      "names": ["чат гпт", "чатгпт", "гпт", "chatgpt", "chat gpt", "gpt", "опенаи", "openai"] },
+
+    { "id": "claude", "kind": "site", "command": "https://claude.ai/",
+      "names": ["клод", "клауд", "клодик", "claude", "антропик", "anthropic"] },
+
+    { "id": "wikipedia", "kind": "site", "command": "https://ru.wikipedia.org/",
+      "names": ["википедия", "вики", "wikipedia", "wiki"] },
+
+    { "id": "stackoverflow", "kind": "site", "command": "https://stackoverflow.com/",
+      "names": ["стековерфлоу", "стак оверфлоу", "стэковерфлов", "stackoverflow", "stack overflow"] },
+
+    { "id": "habr", "kind": "site", "command": "https://habr.com/ru/",
+      "names": ["хабр", "хабрахабр", "habr"] },
+
+    { "id": "rutube", "kind": "site", "command": "https://rutube.ru/",
+      "names": ["рутуб", "ру туб", "rutube"] },
+
+    { "id": "kinopoisk", "kind": "site", "command": "https://www.kinopoisk.ru/",
+      "names": ["кинопоиск", "кино поиск", "кинопоис", "kinopoisk"] },
+
+    { "id": "dzen", "kind": "site", "command": "https://dzen.ru/",
+      "names": ["дзен", "яндекс дзен", "dzen", "zen"] },
+
+    { "id": "mailru", "kind": "site", "command": "https://mail.ru/",
+      "names": ["майл", "майл ру", "мейл ру", "mail ru", "mailru"] },
+
+    { "id": "avito", "kind": "site", "command": "https://www.avito.ru/",
+      "names": ["авито", "avito"] },
+
+    { "id": "ozon", "kind": "site", "command": "https://www.ozon.ru/",
+      "names": ["озон", "ozon"] },
+
+    { "id": "wildberries", "kind": "site", "command": "https://www.wildberries.ru/",
+      "names": ["вайлдберриз", "вайлдбериз", "вб", "валберис", "wildberries"] },
+
+    { "id": "aliexpress", "kind": "site", "command": "https://aliexpress.ru/",
+      "names": ["алиэкспресс", "али экспресс", "али", "aliexpress"] },
+
+    { "id": "netflix", "kind": "site", "command": "https://www.netflix.com/",
+      "names": ["нетфликс", "нетфликc", "netflix"] },
+
+    { "id": "reddit", "kind": "site", "command": "https://www.reddit.com/",
+      "names": ["реддит", "редит", "reddit"] },
+
+    { "id": "twitter", "kind": "site", "command": "https://x.com/",
+      "names": ["твиттер", "твитер", "икс", "twitter", "x com"] },
+
+    { "id": "instagram", "kind": "site", "command": "https://www.instagram.com/",
+      "names": ["инстаграм", "инста", "инстаграмм", "instagram", "insta"] },
+
+    { "id": "facebook", "kind": "site", "command": "https://www.facebook.com/",
+      "names": ["фейсбук", "фэйсбук", "фб", "facebook", "fb"] },
+
+    { "id": "whatsapp", "kind": "site", "command": "https://web.whatsapp.com/",
+      "names": ["ватсап", "вотсап", "вацап", "whatsapp", "whats app"] },
+
+    { "id": "notion", "kind": "site", "command": "https://www.notion.so/",
+      "names": ["ноушен", "ноушн", "нотион", "notion"] },
+
+    { "id": "figma", "kind": "site", "command": "https://www.figma.com/",
+      "names": ["фигма", "figma"] },
+
+    { "id": "linkedin", "kind": "site", "command": "https://www.linkedin.com/",
+      "names": ["линкедин", "линкдин", "linkedin"] },
+
+    { "id": "googledrive", "kind": "site", "command": "https://drive.google.com/",
+      "names": ["гугл диск", "гугл драйв", "google drive", "диск гугл"] },
+
+    { "id": "googledocs", "kind": "site", "command": "https://docs.google.com/",
+      "names": ["гугл докс", "гугл документы", "google docs"] },
+
+    { "id": "translate", "kind": "site", "command": "https://translate.google.com/",
+      "names": ["переводчик", "гугл переводчик", "транслейт", "перевод", "translate", "google translate"] },
+
+    { "id": "deepl", "kind": "site", "command": "https://www.deepl.com/translator",
+      "names": ["дипл", "deepl"] },
+
+    { "id": "yandexmaps", "kind": "site", "command": "https://yandex.ru/maps/",
+      "names": ["яндекс карты", "карты", "яндекс карта", "yandex maps", "maps"] },
+
+    { "id": "2gis", "kind": "site", "command": "https://2gis.ru/",
+      "names": ["два гис", "2гис", "дубльгис", "2gis"] },
+
+    { "id": "weather", "kind": "site", "command": "https://yandex.ru/pogoda/",
+      "names": ["погода", "прогноз погоды", "weather"] },
+
+    { "id": "speedtest", "kind": "site", "command": "https://www.speedtest.net/",
+      "names": ["спидтест", "скорость интернета", "speedtest", "speed test"] }
+
+  ]
+}

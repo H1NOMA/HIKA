@@ -1,0 +1,37 @@
+name: build
+
+# Собирает HIKA на настоящей Windows. Нужно потому, что разработка ведётся
+# не на Windows — этот прогон ловит ошибки компиляции до того, как до них
+# дойдёт живой человек.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Восстановить пакеты
+        run: dotnet restore HIKA.sln
+
+      - name: Собрать (Release)
+        run: dotnet build HIKA.sln -c Release --no-restore -warnaserror:false
+
+      - name: Опубликовать
+        run: dotnet publish src/Hika.App/Hika.App.csproj -c Release -o artifacts/hika --no-restore
+
+      - name: Выложить сборку
+        uses: actions/upload-artifact@v4
+        with:
+          name: hika-win-x64
+          path: artifacts/hika
+          retention-days: 14
