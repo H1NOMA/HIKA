@@ -19,6 +19,8 @@ public class WakeWordTests
     [InlineData("Привет, Ави, открой гугл", "ави", "открой гугл")]
     [InlineData("Эй, Хика, включи музыку", "хика", "включи музыку")]
     [InlineData("Hey Avi, open Word", "ави", "open word")]
+    [InlineData("Хико, открой ютуб", "хико", "открой ютуб")]
+    [InlineData("Привет, Хико, запусти телеграм", "хико", "запусти телеграм")]
     [InlineData("Ави ютуб", "ави", "ютуб")]
     [InlineData("Окей, Ави, сделай громче", "ави", "сделай громче")]
     public void УзнаётИмяИОтделяетКоманду(string spoken, string expectedWord, string expectedRest)
@@ -37,10 +39,24 @@ public class WakeWordTests
     [InlineData("Авия открой ютуб")]
     [InlineData("Хико запусти ворд")]
     [InlineData("Кика запусти ворд")]
+    [InlineData("Хикко открой гугл")]
+    [InlineData("Чико открой гугл")]
+    [InlineData("Hiko open google")]
     [InlineData("Avi open youtube")]
     public void ПрощаетИскажения(string spoken)
     {
         Assert.True(Matcher().Match(spoken).Matched, $"не узнало имя в «{spoken}»");
+    }
+
+    [Theory]
+    // Порог узнавания имени щедрый, и слова на «хи» страдают от этого первыми.
+    [InlineData("хиты этого года")]
+    [InlineData("хитро придумано")]
+    [InlineData("тихо всё было")]
+    public void СловаНаХиНеБудятАссистента(string spoken)
+    {
+        var match = Matcher().Match(spoken);
+        Assert.False(match.Matched, $"ложно сработало на «{spoken}» (услышало «{match.Word}»)");
     }
 
     [Theory]

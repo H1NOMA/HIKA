@@ -38,9 +38,15 @@ public sealed class WakeWordMatcher
     /// </summary>
     private static readonly HashSet<string> RiskyLookalikes = new(StringComparer.Ordinal)
     {
+        // Похожие на «Ави»
         "они", "оны", "иди", "или", "обе", "эти", "эта", "это", "как", "так",
         "там", "вот", "две", "три", "аби", "обои", "увы", "уви", "иви", "ави́",
         "все", "уже", "еще", "over", "avia", "audio",
+
+        // Похожие на «Хика» и «Хико». Порог намеренно щедрый, и слова,
+        // начинающиеся на «хи», от него страдают первыми.
+        "хиты", "хитро", "хитрый", "хилый", "химия", "хижина", "хинди",
+        "тихо", "лихо", "пока", "щека", "щеки",
     };
 
     /// <summary>
@@ -49,8 +55,22 @@ public sealed class WakeWordMatcher
     /// </summary>
     private static readonly Dictionary<string, string[]> HandTunedVariants = new(StringComparer.Ordinal)
     {
-        ["ави"] = new[] { "avi", "ave", "avee", "avy", "авви", "авия", "авиа", "эви", "ави" },
-        ["хика"] = new[] { "hika", "heeka", "hicka", "chica", "kika", "хико", "хикка", "хиика", "гика", "шика", "хика" },
+        ["ави"] = new[]
+        {
+            "avi", "ave", "avee", "avy", "avie", "ivy",
+            "авви", "авия", "авиа", "эви", "ави", "авй", "аби", "авик",
+        },
+        ["хика"] = new[]
+        {
+            "hika", "heeka", "hicka", "chica", "kika", "hikka",
+            "хикка", "хиика", "гика", "шика", "чика", "хиха", "кика", "хика",
+        },
+        ["хико"] = new[]
+        {
+            "hiko", "heeko", "hicko", "chico", "kiko", "hikko",
+            "хикко", "хиико", "гико", "шико", "чико", "хихо", "кико",
+            "хиког", "хикою", "хикой", "хико",
+        },
     };
 
     private readonly List<WakeEntry> _entries = new();
@@ -63,7 +83,7 @@ public sealed class WakeWordMatcher
 
     public WakeWordMatcher(WakeConfig config)
     {
-        _tolerance = Math.Clamp(config.Tolerance, 0.0, 0.6);
+        _tolerance = Math.Clamp(config.Tolerance, 0.0, 0.75);
         _allowAnywhere = config.AllowAnywhere;
 
         foreach (var word in config.Words ?? new List<string>())
@@ -97,7 +117,14 @@ public sealed class WakeWordMatcher
         if (_entries.Any(e => e.Form == form)) return;
 
         // Чем короче слово, тем меньше ошибок ему прощается.
-        var allowed = Math.Max(1, (int)Math.Floor(form.Length * _tolerance));
+        //
+        // Округление, а не отбрасывание дробной части: при отбрасывании
+        // четырёхбуквенному «Хико» доставалась бы ровно одна ошибка при любом
+        // разумном пороге, и настройка tolerance на нём просто не работала бы.
+        var allowed = Math.Max(1, (int)Math.Round(form.Length * _tolerance, MidpointRounding.AwayFromZero));
+
+        // Трём буквам больше одной ошибки не прощаем никогда: «ави» и так
+        // совпадает с половиной коротких слов языка.
         if (form.Length <= 3) allowed = 1;
 
         _entries.Add(new WakeEntry(canonical, form, Translit.Keys(form), allowed));

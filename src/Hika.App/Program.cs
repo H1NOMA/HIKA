@@ -18,7 +18,8 @@ internal static class Program
         AppPaths.EnsureCreated();
 
         var isCommandLine = args.Any(a =>
-            a is "--diagnose" or "-d" or "--list-audio" or "--help" or "-h" or "--version"
+            a is "--diagnose" or "-d" or "--listen" or "-l" or "--list-audio"
+                 or "--help" or "-h" or "--version"
                  or "--enable-autostart" or "--disable-autostart");
 
         if (isCommandLine) AttachToParentConsole();
@@ -94,6 +95,9 @@ internal static class Program
         if (args.Contains("--diagnose") || args.Contains("-d"))
             return SelfTest.RunAsync(args).GetAwaiter().GetResult();
 
+        if (args.Contains("--listen") || args.Contains("-l"))
+            return LiveListen.RunAsync(args).GetAwaiter().GetResult();
+
         return RunTray(store, config, launchedByWindows: args.Contains("--autostart"));
     }
 
@@ -125,7 +129,23 @@ internal static class Program
             tray.UpdateState(host.State, host.Muted);
         };
 
-        tray.DiagnosticsRequested += () => LaunchDiagnostics(tray);
+        tray.DiagnosticsRequested += () => LaunchInConsole(tray, "--diagnose");
+
+        // Живую проверку запускаем с выключенным микрофоном основного экземпляра:
+        // иначе на каждую фразу отреагируют оба, и человек получит команду дважды.
+        tray.LiveListenRequested += () =>
+        {
+            if (!host.Muted)
+            {
+                host.ToggleMute();
+                tray.UpdateState(host.State, host.Muted);
+                tray.ShowMessage("HIKA",
+                    "Микрофон основного экземпляра выключен, пока идёт живая проверка. " +
+                    "Включить обратно — двойным щелчком по значку.");
+            }
+
+            LaunchInConsole(tray, "--listen");
+        };
         tray.ExitRequested += () => Application.Exit();
 
         host.StateChanged += state =>
@@ -172,27 +192,27 @@ internal static class Program
         return 0;
     }
 
-    private static void LaunchDiagnostics(TrayIcon tray)
+    /// <summary>Открывает второй экземпляр в отдельном окне консоли — там живут проверки.</summary>
+    private static void LaunchInConsole(TrayIcon tray, string argument)
     {
         try
         {
             var path = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(path)) return;
 
-            // Диагностика открывается в отдельном окне консоли: ей нужен микрофон,
-            // а он уже занят основным экземпляром — поэтому запускаем как есть
-            // и предупреждаем человека.
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = $"/k \"\"{path}\" --diagnose\"",
+                // /k, а не /c: окно остаётся открытым, и человек успевает
+                // прочитать вывод, а не смотрит, как оно закрылось.
+                Arguments = $"/k \"\"{path}\" {argument}\"",
                 UseShellExecute = true,
             });
         }
         catch (Exception ex)
         {
-            Log.Error("не удалось запустить диагностику", ex, "tray");
-            tray.ShowMessage("HIKA", "Диагностика не запустилась. Подробности в журнале.", ToolTipIcon.Warning);
+            Log.Error($"не удалось запустить {argument}", ex, "tray");
+            tray.ShowMessage("HIKA", "Проверка не запустилась. Подробности в журнале.", ToolTipIcon.Warning);
         }
     }
 
@@ -206,6 +226,10 @@ internal static class Program
 
             Запуск без аргументов: программа уходит в трей и слушает микрофон.
 
+              --listen, -l          живая проверка: показывать всё услышанное
+                                    и что с ним стало. Лучший способ понять,
+                                    почему команда не сработала
+              --execute             вместе с --listen: ещё и выполнять команды
               --diagnose, -d        проверить всю цепочку и сохранить отчёт
               --seconds N           сколько секунд записывать при проверке (по умолчанию 6)
               --list-audio          показать доступные микрофоны

@@ -33,6 +33,7 @@ public sealed class TrayIcon : IDisposable
     public event Action? MuteToggleRequested;
     public event Action? ExitRequested;
     public event Action? DiagnosticsRequested;
+    public event Action? LiveListenRequested;
 
     public TrayIcon()
     {
@@ -52,6 +53,7 @@ public sealed class TrayIcon : IDisposable
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Настройки (config.json)", null, (_, _) => OpenConfig()));
         _menu.Items.Add(new ToolStripMenuItem("Журнал работы", null, (_, _) => OpenLogs()));
+        _menu.Items.Add(new ToolStripMenuItem("Что я слышу (живая проверка)", null, (_, _) => LiveListenRequested?.Invoke()));
         _menu.Items.Add(new ToolStripMenuItem("Проверка системы", null, (_, _) => DiagnosticsRequested?.Invoke()));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Выход", null, (_, _) => ExitRequested?.Invoke()));

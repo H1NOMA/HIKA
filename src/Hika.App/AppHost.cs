@@ -331,7 +331,12 @@ public sealed class AppHost : IDisposable
 
         if (!_recognizer.IsReady)
         {
-            Log.Debug("фраза пришла, но распознавание ещё не готово", "host");
+            // Самая обидная ситуация из возможных: свечение появляется,
+            // человек видит реакцию — и ничего не происходит. Снаружи это
+            // выглядит как «слышит, но не понимает», хотя на деле модель
+            // ещё качается. Поэтому говорим об этом прямо, а не в журнал.
+            Log.Warn("речь услышана, но модель распознавания ещё не готова", "host");
+            NotifyRecognizerNotReady();
             ResetToIdle();
             return;
         }
@@ -361,6 +366,7 @@ public sealed class AppHost : IDisposable
         if (match.Matched)
         {
             command = match.Rest;
+            Log.Debug($"имя: {match.Word}, уверенность {match.Score:F2}", "host");
         }
         else if (wasArmed)
         {
@@ -395,10 +401,50 @@ public sealed class AppHost : IDisposable
             return;
         }
 
-        var outcome = _router.Execute(intent, _configStore.Current.Behavior);
+        var behavior = _configStore.Current.Behavior;
+
+        // Порог узнавания имени намеренно щедрый, и расплачиваться за это
+        // браузером, открывшимся с бессмыслицей, человек не должен. Если имя
+        // распознано неуверенно, команда обязана однозначно найтись в каталоге.
+        if (match.Matched && match.Score < _configStore.Current.Wake.StrictBelowScore && behavior.WebSearchFallback)
+        {
+            Log.Debug($"имя распознано неуверенно ({match.Score:F2}) — поиск в интернете отключён для этой команды", "host");
+            behavior = ShallowCopyWithoutSearchFallback(behavior);
+        }
+
+        var outcome = _router.Execute(intent, behavior);
         Log.Info($"итог: {(outcome.Success ? "выполнено" : "не вышло")} — {outcome.Description} (всего {stopwatch.ElapsedMilliseconds} мс)", "host");
 
         Finish(outcome.Success, stopwatch);
+    }
+
+    private static BehaviorConfig ShallowCopyWithoutSearchFallback(BehaviorConfig source) => new()
+    {
+        ArmedSeconds = source.ArmedSeconds,
+        WebSearchFallback = false,
+        SearchUrl = source.SearchUrl,
+        MatchThreshold = source.MatchThreshold,
+        IndexInstalledApps = source.IndexInstalledApps,
+        ReindexMinutes = source.ReindexMinutes,
+        LogTranscripts = source.LogTranscripts,
+        Autostart = source.Autostart,
+        StartMuted = source.StartMuted,
+        MuteHotkey = source.MuteHotkey,
+        LogLevel = source.LogLevel,
+    };
+
+    private DateTime _lastNotReadyNotice = DateTime.MinValue;
+
+    private void NotifyRecognizerNotReady()
+    {
+        // Не чаще раза в полминуты: человек говорит подряд, а всплывающих
+        // окон должно быть одно, а не десять.
+        if ((DateTime.UtcNow - _lastNotReadyNotice).TotalSeconds < 30) return;
+        _lastNotReadyNotice = DateTime.UtcNow;
+
+        StartupProblem?.Invoke(
+            "Я вас слышу, но модель распознавания ещё не готова — скорее всего, она " +
+            "докачивается. Ход загрузки виден в журнале (значок в трее -> «Журнал работы»).");
     }
 
     private void Finish(bool success, Stopwatch stopwatch)

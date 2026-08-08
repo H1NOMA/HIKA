@@ -157,7 +157,7 @@ public sealed class ConfigStore : IDisposable
         c.Custom ??= new List<CustomEntry>();
 
         if (c.Wake.Words is null || c.Wake.Words.Count == 0)
-            c.Wake.Words = new List<string> { "хика", "ави" };
+            c.Wake.Words = new List<string> { "хика", "хико", "ави" };
         c.Wake.ExtraVariants ??= new List<string>();
 
         if (c.Overlay.Colors is null || c.Overlay.Colors.Count < 4)
@@ -176,7 +176,8 @@ public sealed class ConfigStore : IDisposable
         c.Overlay.VoiceReactivity = Math.Clamp(c.Overlay.VoiceReactivity, 0.0, 1.0);
         c.Overlay.TargetFps = Math.Clamp(c.Overlay.TargetFps, 15, 144);
 
-        c.Wake.Tolerance = Math.Clamp(c.Wake.Tolerance, 0.0, 0.6);
+        c.Wake.Tolerance = Math.Clamp(c.Wake.Tolerance, 0.0, 0.75);
+        c.Wake.StrictBelowScore = Math.Clamp(c.Wake.StrictBelowScore, 0.0, 1.0);
         c.Behavior.MatchThreshold = Math.Clamp(c.Behavior.MatchThreshold, 0.3, 0.95);
         c.Behavior.ArmedSeconds = Math.Clamp(c.Behavior.ArmedSeconds, 0, 60);
         c.Behavior.ReindexMinutes = Math.Clamp(c.Behavior.ReindexMinutes, 1, 1440);
