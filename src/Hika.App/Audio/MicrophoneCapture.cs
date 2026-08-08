@@ -119,6 +119,14 @@ public sealed class MicrophoneCapture : IDisposable
                 {
                     BufferDuration = TimeSpan.FromSeconds(4),
                     DiscardOnBufferOverflow = true,
+
+                    // Принципиально. По умолчанию NAudio дополняет недостающее
+                    // тишиной и всегда возвращает полный запрошенный кусок —
+                    // тогда качающий поток крутился бы вхолостую на полной
+                    // скорости, выдавая выдуманные кадры тишины быстрее
+                    // реального времени. Нам нужно ровно то, что реально пришло
+                    // с микрофона, а на пустом буфере — подождать.
+                    ReadFully = false,
                 };
 
                 _chain = BuildChain(_incoming);
@@ -317,6 +325,14 @@ public sealed class MicrophoneCapture : IDisposable
                 {
                     BufferDuration = TimeSpan.FromSeconds(4),
                     DiscardOnBufferOverflow = true,
+
+                    // Принципиально. По умолчанию NAudio дополняет недостающее
+                    // тишиной и всегда возвращает полный запрошенный кусок —
+                    // тогда качающий поток крутился бы вхолостую на полной
+                    // скорости, выдавая выдуманные кадры тишины быстрее
+                    // реального времени. Нам нужно ровно то, что реально пришло
+                    // с микрофона, а на пустом буфере — подождать.
+                    ReadFully = false,
                 };
                 _chain = BuildChain(_incoming);
 

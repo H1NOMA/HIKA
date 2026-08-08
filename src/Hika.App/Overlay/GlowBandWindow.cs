@@ -26,7 +26,11 @@ internal sealed class GlowBandWindow : Form
     private IntPtr _bitmapHandle = IntPtr.Zero;
     private IntPtr _previousBitmap = IntPtr.Zero;
 
-    private byte _lastAlpha = 255;
+    // Сознательно int, а не byte: −1 означает «ещё ничего не рисовали».
+    // С byte-сентинелом пришлось бы занять какое-то настоящее значение
+    // прозрачности, и кадр ровно с ним молча терялся бы.
+    private int _lastAlpha = -1;
+
     private bool _visible;
     private bool _surfaceReady;
 
@@ -125,7 +129,7 @@ internal sealed class GlowBandWindow : Form
             }
 
             _surfaceReady = true;
-            _lastAlpha = 255;
+            _lastAlpha = -1;
         }
         catch (Exception ex)
         {
@@ -224,7 +228,7 @@ internal sealed class GlowBandWindow : Form
     {
         if (!_surfaceReady || IsDisposed) return;
 
-        var value = (byte)Math.Clamp(Math.Round(alpha * 255.0), 0, 255);
+        var value = (int)Math.Clamp(Math.Round(alpha * 255.0), 0, 255);
 
         if (value == 0)
         {
@@ -238,7 +242,7 @@ internal sealed class GlowBandWindow : Form
             Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
                 Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
             _visible = true;
-            _lastAlpha = 255; // заставить перерисовать при первом показе
+            _lastAlpha = -1;                 // первый показ обязан отрисоваться
         }
 
         // Разница меньше одного шага прозрачности глазу недоступна, а обновление
@@ -258,7 +262,7 @@ internal sealed class GlowBandWindow : Form
             {
                 BlendOp = Win32.AC_SRC_OVER,
                 BlendFlags = 0,
-                SourceConstantAlpha = value,
+                SourceConstantAlpha = (byte)value,
                 AlphaFormat = Win32.AC_SRC_ALPHA,
             };
 

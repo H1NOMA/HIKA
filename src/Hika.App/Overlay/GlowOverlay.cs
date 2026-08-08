@@ -400,10 +400,18 @@ public sealed class GlowOverlay : IDisposable
 
         try
         {
-            _context?.ExitThread();
+            // Цикл сообщений останавливается только из своего же потока,
+            // поэтому просьбу закрыться отправляем через окно.
+            var anchor = _anchor;
+
+            if (anchor is not null && !anchor.IsDisposed)
+                anchor.BeginInvoke(new Action(Application.ExitThread));
+            else
+                _context?.ExitThread();
         }
         catch (Exception ex)
         {
+            // Поток фоновый — если не закрылся сам, его снимет выход из программы.
             Log.Debug($"поток свечения завершился нештатно: {ex.Message}", "overlay");
         }
 

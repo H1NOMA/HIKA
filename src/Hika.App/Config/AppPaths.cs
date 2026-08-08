@@ -12,9 +12,14 @@ public static class AppPaths
     public static string DefaultModelDirectory => Path.Combine(Root, "models");
     public static string CacheDirectory => Path.Combine(Root, "cache");
 
-    /// <summary>Каталог рядом с исполняемым файлом — там лежит поставляемый по умолчанию catalog.default.json.</summary>
-    public static string InstallDirectory { get; } =
-        Path.GetDirectoryName(Environment.ProcessPath ?? AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
+    /// <summary>
+    /// Каталог со сборкой — там лежит поставляемый catalog.default.json.
+    ///
+    /// Именно BaseDirectory, а не путь процесса: под тестовым запуском
+    /// и под средой размещения процессом оказывается чужой исполняемый файл,
+    /// а нужна папка, куда сложены наши собственные файлы.
+    /// </summary>
+    public static string InstallDirectory { get; } = AppContext.BaseDirectory;
 
     public static void EnsureCreated()
     {
