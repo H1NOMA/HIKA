@@ -81,7 +81,11 @@ public class CommandParserTests
     {
         // «Пауза» — готовая команда, но «открой паузу» ей быть не должно.
         Assert.Equal(IntentKind.Launch, CommandParser.Parse("открой обс студио").Kind);
-        Assert.Equal(IntentKind.Launch, CommandParser.Parse("запусти диспетчер задач").Kind);
+        Assert.Equal(IntentKind.Launch, CommandParser.Parse("запусти фотошоп").Kind);
+
+        // А вот «диспетчер задач» — наоборот: у него есть своя команда,
+        // и открыть его сочетанием клавиш надёжнее, чем искать по каталогу.
+        Assert.Equal(IntentKind.OpenTaskManager, CommandParser.Parse("запусти диспетчер задач").Kind);
     }
 
     [Theory]

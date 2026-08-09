@@ -49,25 +49,104 @@ public sealed class SkillRouter
                 IntentKind.NowPlaying => MediaSessions.NowPlaying(),
                 IntentKind.PlayMusic => _music.Play(behavior),
 
-                IntentKind.LockWorkstation => SystemActions.LockWorkstation(),
-                IntentKind.ShowDesktop => SystemActions.ShowDesktop(),
+                // ---- Окна ---------------------------------------------------
                 IntentKind.MinimizeWindow => SystemActions.MinimizeActiveWindow(),
                 IntentKind.CloseWindow => SystemActions.CloseActiveWindow(),
-                IntentKind.Screenshot => SystemActions.Screenshot(),
-                IntentKind.Sleep => SystemActions.Sleep(),
-                IntentKind.Time => SystemActions.Time(),
-
-                IntentKind.Timer => _timers.Start(TimeSpan.FromSeconds(Number(intent.Argument, 300))),
-
-                IntentKind.NewTab => SystemActions.Combo("новая вкладка", Win32.VK_CONTROL, Win32.VK_T),
-                IntentKind.CloseTab => SystemActions.Combo("вкладка закрыта", Win32.VK_CONTROL, Win32.VK_W),
-                IntentKind.BrowserBack => SystemActions.Combo("шаг назад", Win32.VK_MENU, Win32.VK_LEFT),
-                IntentKind.BrowserRefresh => SystemActions.Combo("страница обновлена", Win32.VK_F5),
+                IntentKind.ShowDesktop => SystemActions.ShowDesktop(),
+                IntentKind.MaximizeWindow => SystemActions.Combo("окно развёрнуто", Win32.VK_LWIN, Win32.VK_UP),
+                IntentKind.RestoreWindow => SystemActions.Combo("окно восстановлено", Win32.VK_LWIN, Win32.VK_DOWN),
+                IntentKind.SnapLeft => SystemActions.Combo("окно слева", Win32.VK_LWIN, Win32.VK_LEFT),
+                IntentKind.SnapRight => SystemActions.Combo("окно справа", Win32.VK_LWIN, Win32.VK_RIGHT),
+                IntentKind.SwitchWindow => SystemActions.Combo("переключение окон", Win32.VK_MENU, Win32.VK_TAB),
+                IntentKind.TaskView => SystemActions.Combo("обзор задач", Win32.VK_LWIN, Win32.VK_TAB),
 
                 IntentKind.NextDesktop => SystemActions.Combo("следующий рабочий стол",
                     Win32.VK_LWIN, Win32.VK_CONTROL, Win32.VK_RIGHT),
                 IntentKind.PreviousDesktop => SystemActions.Combo("предыдущий рабочий стол",
                     Win32.VK_LWIN, Win32.VK_CONTROL, Win32.VK_LEFT),
+                IntentKind.NewDesktop => SystemActions.Combo("новый рабочий стол",
+                    Win32.VK_LWIN, Win32.VK_CONTROL, Win32.VK_D),
+                IntentKind.CloseDesktop => SystemActions.Combo("рабочий стол закрыт",
+                    Win32.VK_LWIN, Win32.VK_CONTROL, Win32.VK_F4),
+
+                // ---- Прокрутка и масштаб -------------------------------------
+                IntentKind.ScrollUp => SystemActions.Combo("вверх", Win32.VK_PRIOR),
+                IntentKind.ScrollDown => SystemActions.Combo("вниз", Win32.VK_NEXT),
+                IntentKind.ScrollTop => SystemActions.Combo("в начало", Win32.VK_CONTROL, Win32.VK_HOME),
+                IntentKind.ScrollBottom => SystemActions.Combo("в конец", Win32.VK_CONTROL, Win32.VK_END),
+                IntentKind.ZoomIn => SystemActions.Combo("крупнее", Win32.VK_CONTROL, Win32.VK_OEM_PLUS),
+                IntentKind.ZoomOut => SystemActions.Combo("мельче", Win32.VK_CONTROL, Win32.VK_OEM_MINUS),
+                IntentKind.ZoomReset => SystemActions.Combo("обычный масштаб", Win32.VK_CONTROL, Win32.VK_0),
+                IntentKind.FullScreen => SystemActions.Combo("полный экран", Win32.VK_F11),
+
+                // ---- Мышь и клавиши ------------------------------------------
+                IntentKind.MouseClick => SystemActions.Click(),
+                IntentKind.MouseRightClick => SystemActions.RightClick(),
+                IntentKind.MouseDoubleClick => SystemActions.DoubleClick(),
+
+                IntentKind.PressEnter => SystemActions.Combo("ввод", Win32.VK_RETURN),
+                IntentKind.PressEscape => SystemActions.Combo("отмена", Win32.VK_ESCAPE),
+                IntentKind.PressTab => SystemActions.Combo("табуляция", Win32.VK_TAB),
+                IntentKind.PressBackspace => SystemActions.Combo("стёрто", Win32.VK_BACK),
+                IntentKind.PressDelete => SystemActions.Combo("удалено", Win32.VK_DELETE),
+                IntentKind.PressUp => SystemActions.Combo("вверх", Win32.VK_UP),
+                IntentKind.PressDown => SystemActions.Combo("вниз", Win32.VK_DOWN),
+                IntentKind.PressLeft => SystemActions.Combo("влево", Win32.VK_LEFT),
+                IntentKind.PressRight => SystemActions.Combo("вправо", Win32.VK_RIGHT),
+
+                // ---- Текст ----------------------------------------------------
+                IntentKind.Copy => SystemActions.Combo("скопировано", Win32.VK_CONTROL, Win32.VK_C),
+                IntentKind.Paste => SystemActions.Combo("вставлено", Win32.VK_CONTROL, Win32.VK_V),
+                IntentKind.Cut => SystemActions.Combo("вырезано", Win32.VK_CONTROL, Win32.VK_X),
+                IntentKind.Undo => SystemActions.Combo("отменено", Win32.VK_CONTROL, Win32.VK_Z),
+                IntentKind.Redo => SystemActions.Combo("возвращено", Win32.VK_CONTROL, Win32.VK_Y),
+                IntentKind.SelectAll => SystemActions.Combo("выделено всё", Win32.VK_CONTROL, Win32.VK_A),
+                IntentKind.Save => SystemActions.Combo("сохранено", Win32.VK_CONTROL, Win32.VK_S),
+                IntentKind.Print => SystemActions.Combo("печать", Win32.VK_CONTROL, Win32.VK_P),
+                IntentKind.FindOnPage => SystemActions.Combo("поиск по странице", Win32.VK_CONTROL, Win32.VK_F),
+                IntentKind.TypeText => SystemActions.TypeText(intent.Argument),
+
+                // ---- Браузер --------------------------------------------------
+                IntentKind.NewTab => SystemActions.Combo("новая вкладка", Win32.VK_CONTROL, Win32.VK_T),
+                IntentKind.CloseTab => SystemActions.Combo("вкладка закрыта", Win32.VK_CONTROL, Win32.VK_W),
+                IntentKind.ReopenTab => SystemActions.Combo("вкладка возвращена",
+                    Win32.VK_CONTROL, Win32.VK_SHIFT, Win32.VK_T),
+                IntentKind.NextTab => SystemActions.Combo("следующая вкладка", Win32.VK_CONTROL, Win32.VK_TAB),
+                IntentKind.PreviousTab => SystemActions.Combo("предыдущая вкладка",
+                    Win32.VK_CONTROL, Win32.VK_SHIFT, Win32.VK_TAB),
+                IntentKind.BrowserBack => SystemActions.Combo("шаг назад", Win32.VK_MENU, Win32.VK_LEFT),
+                IntentKind.BrowserForward => SystemActions.Combo("шаг вперёд", Win32.VK_MENU, Win32.VK_RIGHT),
+                IntentKind.BrowserRefresh => SystemActions.Combo("страница обновлена", Win32.VK_F5),
+                IntentKind.Bookmark => SystemActions.Combo("в закладках", Win32.VK_CONTROL, Win32.VK_D),
+                IntentKind.IncognitoWindow => SystemActions.Combo("окно инкогнито",
+                    Win32.VK_CONTROL, Win32.VK_SHIFT, Win32.VK_N),
+
+                // ---- Места Windows --------------------------------------------
+                IntentKind.OpenStartMenu => SystemActions.Combo("меню «Пуск»", Win32.VK_LWIN),
+                IntentKind.OpenSearch => SystemActions.Combo("поиск Windows", Win32.VK_LWIN, Win32.VK_S),
+                IntentKind.OpenSettings => SystemActions.Combo("параметры Windows", Win32.VK_LWIN, Win32.VK_I),
+                IntentKind.OpenExplorer => SystemActions.Combo("проводник", Win32.VK_LWIN, Win32.VK_E),
+                IntentKind.OpenTaskManager => SystemActions.Combo("диспетчер задач",
+                    Win32.VK_CONTROL, Win32.VK_SHIFT, Win32.VK_ESCAPE),
+                IntentKind.OpenNotifications => SystemActions.Combo("уведомления", Win32.VK_LWIN, Win32.VK_N),
+                IntentKind.OpenClipboard => SystemActions.Combo("буфер обмена", Win32.VK_LWIN, Win32.VK_V),
+                IntentKind.OpenEmoji => SystemActions.Combo("эмодзи", Win32.VK_LWIN, Win32.VK_OEM_PERIOD),
+                IntentKind.OpenRun => SystemActions.Combo("выполнить", Win32.VK_LWIN, Win32.VK_R),
+
+                // ---- Система ---------------------------------------------------
+                IntentKind.LockWorkstation => SystemActions.LockWorkstation(),
+                IntentKind.Screenshot => SystemActions.Screenshot(),
+                IntentKind.Sleep => SystemActions.Sleep(),
+                IntentKind.Time => SystemActions.Time(),
+                IntentKind.Date => SystemActions.Date(),
+                IntentKind.Battery => SystemActions.Battery(),
+
+                IntentKind.BrightnessUp => Brightness.Step(+10),
+                IntentKind.BrightnessDown => Brightness.Step(-10),
+                IntentKind.BrightnessSet => Brightness.Set(Number(intent.Argument, 60)),
+
+                IntentKind.Timer => _timers.Start(TimeSpan.FromSeconds(Number(intent.Argument, 300))),
+                IntentKind.CancelTimers => _timers.CancelAll(),
 
                 _ => SkillResult.Fail("команда не распознана"),
             };

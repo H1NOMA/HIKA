@@ -42,6 +42,9 @@
     <!-- Разговор: официальный SDK Anthropic -->
     <PackageReference Include="Anthropic" Version="12.40.0" />
 
+    <!-- Яркость встроенного экрана: драйвер сообщает уровни через WMI -->
+    <PackageReference Include="System.Management" Version="9.0.0" />
+
     <!-- Шифрование ключа доступа средствами Windows (DPAPI) -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
   </ItemGroup>

@@ -92,7 +92,17 @@ internal static class Win32
     // ---- Ввод -----------------------------------------------------------
 
     internal const int INPUT_KEYBOARD = 1;
+    internal const int INPUT_MOUSE = 0;
     internal const uint KEYEVENTF_KEYUP = 0x0002;
+
+    /// <summary>Отправить символ, а не клавишу. Нужно для набора текста голосом.</summary>
+    internal const uint KEYEVENTF_UNICODE = 0x0004;
+
+    internal const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    internal const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    internal const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    internal const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    internal const uint MOUSEEVENTF_WHEEL = 0x0800;
 
     internal const ushort VK_MEDIA_NEXT_TRACK = 0xB0;
     internal const ushort VK_MEDIA_PREV_TRACK = 0xB1;
@@ -108,6 +118,38 @@ internal static class Win32
     internal const ushort VK_S = 0x53;
     internal const ushort VK_T = 0x54;
     internal const ushort VK_W = 0x57;
+    internal const ushort VK_C = 0x43;
+    internal const ushort VK_V = 0x56;
+    internal const ushort VK_X = 0x58;
+    internal const ushort VK_Z = 0x5A;
+    internal const ushort VK_Y = 0x59;
+    internal const ushort VK_A = 0x41;
+    internal const ushort VK_D = 0x44;
+    internal const ushort VK_E = 0x45;
+    internal const ushort VK_F = 0x46;
+    internal const ushort VK_I = 0x49;
+    internal const ushort VK_N = 0x4E;
+    internal const ushort VK_P = 0x50;
+    internal const ushort VK_R = 0x52;
+    internal const ushort VK_0 = 0x30;
+
+    internal const ushort VK_TAB = 0x09;
+    internal const ushort VK_RETURN = 0x0D;
+    internal const ushort VK_ESCAPE = 0x1B;
+    internal const ushort VK_BACK = 0x08;
+    internal const ushort VK_DELETE = 0x2E;
+    internal const ushort VK_SPACE = 0x20;
+    internal const ushort VK_UP = 0x26;
+    internal const ushort VK_DOWN = 0x28;
+    internal const ushort VK_HOME = 0x24;
+    internal const ushort VK_END = 0x23;
+    internal const ushort VK_PRIOR = 0x21;   // Page Up
+    internal const ushort VK_NEXT = 0x22;    // Page Down
+    internal const ushort VK_F4 = 0x73;
+    internal const ushort VK_F11 = 0x7A;
+    internal const ushort VK_OEM_PERIOD = 0xBE;
+    internal const ushort VK_OEM_PLUS = 0xBB;
+    internal const ushort VK_OEM_MINUS = 0xBD;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct KEYBDINPUT
@@ -317,6 +359,51 @@ internal static class Win32
         };
 
         SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    /// <summary>Кнопка мыши: нажатие и отпускание там, где курсор сейчас.</summary>
+    internal static void TapMouse(uint down, uint up)
+    {
+        var inputs = new[]
+        {
+            new INPUT { Type = INPUT_MOUSE, Union = new INPUTUNION { Mouse = new MOUSEINPUT { Flags = down } } },
+            new INPUT { Type = INPUT_MOUSE, Union = new INPUTUNION { Mouse = new MOUSEINPUT { Flags = up } } },
+        };
+
+        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    /// <summary>
+    /// Набирает текст посимвольно.
+    ///
+    /// Именно символами, а не клавишами: раскладка клавиатуры при этом
+    /// не имеет значения, и русский текст наберётся даже при английской.
+    /// </summary>
+    internal static void TypeText(string text)
+    {
+        var inputs = new List<INPUT>(text.Length * 2);
+
+        foreach (var ch in text)
+        {
+            inputs.Add(new INPUT
+            {
+                Type = INPUT_KEYBOARD,
+                Union = new INPUTUNION { Keyboard = new KEYBDINPUT { Scan = ch, Flags = KEYEVENTF_UNICODE } },
+            });
+            inputs.Add(new INPUT
+            {
+                Type = INPUT_KEYBOARD,
+                Union = new INPUTUNION
+                {
+                    Keyboard = new KEYBDINPUT { Scan = ch, Flags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP },
+                },
+            });
+        }
+
+        if (inputs.Count == 0) return;
+
+        var array = inputs.ToArray();
+        SendInput((uint)array.Length, array, Marshal.SizeOf<INPUT>());
     }
 
     /// <summary>Нажать сочетание: модификаторы удерживаются, пока нажимается основная клавиша.</summary>

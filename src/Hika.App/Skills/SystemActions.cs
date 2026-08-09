@@ -138,11 +138,88 @@ public static class SystemActions
 
     public static SkillResult Time()
     {
-        var now = DateTime.Now;
-        var text = now.ToString("HH:mm");
+        var text = DateTime.Now.ToString("HH:mm");
 
         Log.Info($"время: {text}", "system");
         return SkillResult.Ok($"сейчас {text}");
+    }
+
+    public static SkillResult Date()
+    {
+        var text = DateTime.Now.ToString("d MMMM, dddd", new System.Globalization.CultureInfo("ru-RU"));
+
+        Log.Info($"дата: {text}", "system");
+        return SkillResult.Ok($"сегодня {text}");
+    }
+
+    /// <summary>
+    /// Заряд батареи.
+    ///
+    /// На настольном компьютере батареи нет, и это не ошибка, а ответ:
+    /// «работает от сети» — ровно то, что человек хотел узнать.
+    /// </summary>
+    public static SkillResult Battery()
+    {
+        try
+        {
+            var power = System.Windows.Forms.SystemInformation.PowerStatus;
+
+            if (power.BatteryChargeStatus.HasFlag(System.Windows.Forms.BatteryChargeStatus.NoSystemBattery))
+                return SkillResult.Ok("батареи нет, работаем от сети");
+
+            var percent = (int)Math.Round(power.BatteryLifePercent * 100);
+            var charging = power.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online;
+
+            var text = charging
+                ? $"заряд {percent} процентов, заряжается"
+                : $"заряд {percent} процентов";
+
+            Log.Info(text, "system");
+            return SkillResult.Ok(text);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("заряд батареи не прочитался", ex, "system");
+            return SkillResult.Fail("не смогла узнать заряд");
+        }
+    }
+
+    public static SkillResult Click()
+    {
+        Win32.TapMouse(Win32.MOUSEEVENTF_LEFTDOWN, Win32.MOUSEEVENTF_LEFTUP);
+        return SkillResult.Ok("клик");
+    }
+
+    public static SkillResult RightClick()
+    {
+        Win32.TapMouse(Win32.MOUSEEVENTF_RIGHTDOWN, Win32.MOUSEEVENTF_RIGHTUP);
+        return SkillResult.Ok("правый клик");
+    }
+
+    public static SkillResult DoubleClick()
+    {
+        Win32.TapMouse(Win32.MOUSEEVENTF_LEFTDOWN, Win32.MOUSEEVENTF_LEFTUP);
+        Thread.Sleep(40);
+        Win32.TapMouse(Win32.MOUSEEVENTF_LEFTDOWN, Win32.MOUSEEVENTF_LEFTUP);
+        return SkillResult.Ok("двойной клик");
+    }
+
+    /// <summary>Набрать текст в активное окно.</summary>
+    public static SkillResult TypeText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return SkillResult.Fail("нечего печатать");
+
+        try
+        {
+            Win32.TypeText(text);
+            Log.Info($"напечатано {text.Length} знаков", "system");
+            return SkillResult.Ok("напечатано");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("набор текста не удался", ex, "system");
+            return SkillResult.Fail("не вышло напечатать");
+        }
     }
 
     /// <summary>

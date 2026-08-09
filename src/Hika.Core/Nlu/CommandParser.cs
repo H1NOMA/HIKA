@@ -286,15 +286,18 @@ public static class CommandParser
         var cleaned = tokens.Where(t => !Fillers.Contains(t)).ToArray();
         if (cleaned.Length == 0) cleaned = tokens;
 
-        // Команды с числом или названием внутри разбираются раньше готовых:
-        // «сделай громкость тридцать» иначе рискует совпасть с «сделай тише».
-        var parametrized = MatchParametrized(cleaned);
-        if (parametrized is not null) return parametrized;
-
-        // Шаблоны идут перед перечислением: они описывают команду устройством
-        // фразы и покрывают те сочетания, которые никто не выписывал.
+        // Шаблоны разбираются первыми. Порядок пришлось развернуть: обороты
+        // «перейди в …» и «разверни …» задуманы как переключение на окно
+        // и перехватывали всё, что с них начинается, — «перейди в начало
+        // страницы» становилось попыткой найти окно с таким названием.
+        // Точное описание команды должно побеждать общий оборот.
         var pattern = MatchPattern(cleaned);
         if (pattern is not null) return pattern;
+
+        // Команды с числом или названием внутри: «громкость тридцать»,
+        // «таймер на пять минут», «переключись на хром».
+        var parametrized = MatchParametrized(cleaned);
+        if (parametrized is not null) return parametrized;
 
         var fixedMatch = MatchFixedCommand(cleaned);
         if (fixedMatch is not null) return fixedMatch;
@@ -389,72 +392,6 @@ public static class CommandParser
         return true;
     }
 
-    /// <summary>
-    /// Команды, описанные устройством фразы, а не перечислением.
-    ///
-    /// Порядок важен: побеждает первый подошедший при равной оценке, поэтому
-    /// более определённые стоят раньше. «Следующий трек» должен разбираться
-    /// как переключение, а не как «включи трек».
-    ///
-    /// Пороги разные, и это не случайность. Ошибка на «следующей песне»
-    /// стоит одного лишнего нажатия, ошибка на «выключи звук» — тишины
-    /// посреди разговора, а перехваченный запуск программы раздражает
-    /// сильнее всего.
-    /// </summary>
-    private static readonly PhrasePattern[] Patterns =
-    {
-        // Следующий трек. «Следующая», «дальше», «переключи» — сами по себе.
-        PhrasePattern.Of(IntentKind.MediaNext, 0.80,
-            "?давай|включи|поставь|ставь|next",
-            "следующий|следующая|следующее|следующую|дальше|переключи|перемотай|next|skip",
-            "?трек|треки|песню|песня|песни|композицию|track|song"),
-
-        // Предыдущий трек.
-        PhrasePattern.Of(IntentKind.MediaPrevious, 0.80,
-            "?давай|включи|поставь|верни",
-            "предыдущий|предыдущая|предыдущую|прошлый|прошлую|назад|previous|prev|back",
-            "?трек|песню|песня|композицию|track|song"),
-
-        // Пауза. «Стоп», «хватит», «тихо» — односложные и самые ходовые.
-        PhrasePattern.Of(IntentKind.MediaPause, 0.84,
-            "?сделай|поставь|нажми|давай",
-            "пауза|паузу|стоп|останови|остановись|приостанови|хватит|тихо|замолчи|заткнись|pause|stop",
-            "?музыку|музыка|трек|песню|воспроизведение|играть|это"),
-
-        // Продолжить. Именно продолжить, а не начать заново.
-        //
-        // «Включи» сюда не входит намеренно, хотя и просится: «включи музыку»
-        // человек говорит, когда плеер закрыт, и продолжать там нечего.
-        // Это соседняя команда — поднять плеер и начать играть.
-        PhrasePattern.Of(IntentKind.MediaPlay, 0.84,
-            "?давай|ну",
-            "продолжи|продолжай|продолжить|возобнови|играй|отомри|resume|continue|unpause",
-            "?музыку|музыка|трек|песню|воспроизведение|играть|дальше"),
-
-        // Включить музыку вообще: поднять плеер и начать играть.
-        PhrasePattern.Of(IntentKind.PlayMusic, 0.80,
-            "?включи|поставь|запусти|врубай|вруби|давай|open|play|start",
-            "?мне|мою|моя|мой|любимую|последний|последнюю",
-            "музыку|музыка|музон|музычку|плейлист|плейлисты|треки|песни|playlist|music|tunes"),
-
-        // Что играет.
-        PhrasePattern.Of(IntentKind.NowPlaying, 0.84,
-            "?а|и",
-            "что|какая|какой|кто|which|what",
-            "?сейчас|это|там",
-            "играет|поёт|поет|звучит|трек|песня|играло|playing"),
-
-        // Громче и тише — с уточнением и без.
-        PhrasePattern.Of(IntentKind.VolumeUp, 0.84,
-            "?сделай|поставь|давай",
-            "громче|погромче|прибавь|увеличь|louder",
-            "?звук|громкость|музыку|немного"),
-        PhrasePattern.Of(IntentKind.VolumeDown, 0.84,
-            "?сделай|поставь|давай",
-            "тише|потише|убавь|уменьши|приглуши|quieter",
-            "?звук|громкость|музыку|немного"),
-    };
-
     /// <summary>Слова, по которым узнаётся разговор о громкости.</summary>
     private static readonly HashSet<string> VolumeWords = new(StringComparer.Ordinal)
     {
@@ -466,6 +403,36 @@ public static class CommandParser
     {
         "таймер", "таймере", "напомни", "напоминание", "будильник", "засеки",
         "timer", "remind",
+    };
+
+    /// <summary>
+    /// Начала фраз, которыми просят набрать текст.
+    ///
+    /// «Напиши» здесь отсутствует намеренно: этим словом просят сочинить,
+    /// а не напечатать, и оно уходит в разговор. Перепутать эти два значения
+    /// — значит на просьбу «напиши письмо другу» вбить в активное окно
+    /// слова «письмо другу».
+    /// </summary>
+    private static readonly string[][] TypeOpeners =
+    {
+        new[] { "напечатай" }, new[] { "печатай" }, new[] { "набери" },
+        new[] { "введи" }, new[] { "вбей" }, new[] { "напечатать" },
+        new[] { "type" },
+    };
+
+    /// <summary>
+    /// Слова, которые не могут быть названием окна.
+    ///
+    /// Обороты переключения — «перейди в», «разверни» — начинают и другие
+    /// команды. Окна с названием «начало» или «вкладку» не существует,
+    /// а вот «перейди в начало страницы» человек говорит regularly.
+    /// </summary>
+    private static readonly HashSet<string> NotAWindowName = new(StringComparer.Ordinal)
+    {
+        "начало", "конец", "верх", "низ", "середину", "самый",
+        "окно", "окошко", "вкладку", "вкладка", "страницу", "страница",
+        "это", "всё", "все", "назад", "вперёд", "вперед", "влево", "вправо",
+        "вверх", "вниз", "полный", "обычный",
     };
 
     /// <summary>Начала фраз, которыми просят переключиться на уже открытое окно.</summary>
@@ -515,15 +482,35 @@ public static class CommandParser
             }
         }
 
+        // Набор текста: всё после оборота печатается как есть.
+        //
+        // «Напиши» сюда не входит: этим словом просят сочинить, а не набрать,
+        // и уходит оно в разговор. Разница заметна сразу, стоит перепутать.
+        foreach (var opener in TypeOpeners)
+        {
+            if (tokens.Length <= opener.Length) continue;
+            if (!StartsWith(tokens, opener)) continue;
+
+            var text = string.Join(' ', tokens[opener.Length..]).Trim();
+            if (text.Length == 0) continue;
+
+            return new Intent(IntentKind.TypeText, text) { ExplicitVerb = true };
+        }
+
         // Переключение на окно: оборот плюс то, на что переключаться.
         foreach (var opener in FocusOpeners)
         {
             if (tokens.Length <= opener.Length) continue;
             if (!StartsWith(tokens, opener)) continue;
 
-            var target = string.Join(' ', tokens[opener.Length..]
-                .Where(t => !TargetNoise.Contains(t)));
+            var rest = tokens[opener.Length..];
 
+            // «Перейди в начало страницы» начинается точно так же, как
+            // «перейди в телеграм», но окна с названием «начало» не бывает.
+            // Служебное слово сразу после оборота означает другую команду.
+            if (NotAWindowName.Contains(rest[0])) continue;
+
+            var target = string.Join(' ', rest.Where(t => !TargetNoise.Contains(t)));
             if (target.Length == 0) continue;
 
             return new Intent(IntentKind.FocusWindow, target) { ExplicitVerb = true };
@@ -595,7 +582,7 @@ public static class CommandParser
         IntentKind bestKind = IntentKind.None;
         double bestScore = 0;
 
-        foreach (var pattern in Patterns)
+        foreach (var pattern in CommandCatalog.All)
         {
             var score = pattern.Match(spoken);
             if (score < pattern.Threshold) continue;

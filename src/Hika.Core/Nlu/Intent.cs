@@ -1,14 +1,92 @@
 namespace Hika.Nlu;
 
+/// <summary>
+/// Что человек хотел.
+///
+/// Набор выстроен по тем же разделам, по которым устроены голосовое управление
+/// Windows и известные ассистенты: приложения и окна, экран и прокрутка, мышь
+/// и клавиши, текст, система, браузер, воспроизведение. Разделы не выдуманы —
+/// они повторяются у всех, потому что отражают не устройство программы,
+/// а то, из чего состоит работа за компьютером.
+/// </summary>
 public enum IntentKind
 {
     None,
+
+    // ---- Приложения и окна ------------------------------------------------
 
     /// <summary>Открыть программу или сайт. Аргумент — то, что нужно открыть.</summary>
     Launch,
 
     /// <summary>Поискать в интернете. Аргумент — запрос.</summary>
     Search,
+
+    /// <summary>Переключиться на открытое окно. Аргумент — часть его заголовка.</summary>
+    FocusWindow,
+
+    MinimizeWindow,
+    MaximizeWindow,
+    RestoreWindow,
+    CloseWindow,
+    ShowDesktop,
+
+    /// <summary>Прижать окно к левой или правой половине экрана.</summary>
+    SnapLeft,
+    SnapRight,
+
+    /// <summary>Переключение между окнами и обзор задач.</summary>
+    SwitchWindow,
+    TaskView,
+
+    NextDesktop,
+    PreviousDesktop,
+    NewDesktop,
+    CloseDesktop,
+
+    // ---- Экран и прокрутка -------------------------------------------------
+
+    ScrollUp,
+    ScrollDown,
+    ScrollTop,
+    ScrollBottom,
+
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    FullScreen,
+
+    // ---- Мышь и клавиши ----------------------------------------------------
+
+    MouseClick,
+    MouseRightClick,
+    MouseDoubleClick,
+
+    PressEnter,
+    PressEscape,
+    PressTab,
+    PressBackspace,
+    PressDelete,
+    PressUp,
+    PressDown,
+    PressLeft,
+    PressRight,
+
+    // ---- Текст -------------------------------------------------------------
+
+    Copy,
+    Paste,
+    Cut,
+    Undo,
+    Redo,
+    SelectAll,
+    Save,
+    Print,
+    FindOnPage,
+
+    /// <summary>Набрать текст. Аргумент — что именно печатать.</summary>
+    TypeText,
+
+    // ---- Звук и воспроизведение -------------------------------------------
 
     VolumeUp,
     VolumeDown,
@@ -22,7 +100,7 @@ public enum IntentKind
     /// <summary>Именно остановить, а не переключить: «пауза», «стоп».</summary>
     MediaPause,
 
-    /// <summary>Именно продолжить: «продолжи», «включи обратно».</summary>
+    /// <summary>Именно продолжить: «продолжи», «возобнови».</summary>
     MediaPlay,
 
     MediaNext,
@@ -34,31 +112,59 @@ public enum IntentKind
     /// <summary>Включить музыку: продолжить приостановленное или поднять плеер.</summary>
     PlayMusic,
 
+    // ---- Система -----------------------------------------------------------
+
     LockWorkstation,
-    ShowDesktop,
-    MinimizeWindow,
-    CloseWindow,
     Screenshot,
 
     /// <summary>Перевести компьютер в сон.</summary>
     Sleep,
 
-    /// <summary>Переключиться на окно. Аргумент — часть его заголовка.</summary>
-    FocusWindow,
+    BrightnessUp,
+    BrightnessDown,
+
+    /// <summary>Яркость на столько-то процентов. Аргумент — число.</summary>
+    BrightnessSet,
 
     /// <summary>Сказать время.</summary>
     Time,
 
+    /// <summary>Сказать дату.</summary>
+    Date,
+
+    /// <summary>Сказать заряд батареи.</summary>
+    Battery,
+
     /// <summary>Напомнить через промежуток. Аргумент — секунды.</summary>
     Timer,
 
+    /// <summary>Отменить идущие таймеры.</summary>
+    CancelTimers,
+
+    // ---- Места Windows -----------------------------------------------------
+
+    OpenStartMenu,
+    OpenSearch,
+    OpenSettings,
+    OpenExplorer,
+    OpenTaskManager,
+    OpenNotifications,
+    OpenClipboard,
+    OpenEmoji,
+    OpenRun,
+
+    // ---- Браузер -----------------------------------------------------------
+
     NewTab,
     CloseTab,
+    ReopenTab,
+    NextTab,
+    PreviousTab,
     BrowserBack,
+    BrowserForward,
     BrowserRefresh,
-
-    NextDesktop,
-    PreviousDesktop,
+    Bookmark,
+    IncognitoWindow,
 }
 
 public sealed record Intent(IntentKind Kind, string Argument = "", double Confidence = 1.0)
