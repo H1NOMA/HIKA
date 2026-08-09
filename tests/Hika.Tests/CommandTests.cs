@@ -52,7 +52,7 @@ public class CommandParserTests
     [InlineData("тише", IntentKind.VolumeDown)]
     [InlineData("убавь громкость", IntentKind.VolumeDown)]
     [InlineData("выключи звук", IntentKind.VolumeMute)]
-    [InlineData("пауза", IntentKind.MediaPlayPause)]
+    [InlineData("пауза", IntentKind.MediaPause)]
     [InlineData("следующий трек", IntentKind.MediaNext)]
     [InlineData("сверни всё", IntentKind.ShowDesktop)]
     [InlineData("покажи рабочий стол", IntentKind.ShowDesktop)]

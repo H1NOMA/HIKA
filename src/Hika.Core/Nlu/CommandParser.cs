@@ -147,10 +147,29 @@ public static class CommandParser
             "выключи звук", "отключи звук", "заглуши", "без звука", "мьют",
             "приглуши", "mute", "silence",
         }),
+        // «Пауза» и «продолжи» разведены намеренно. Переключатель хорош
+        // на клавиатуре, где человек видит, что играет; сказанное вслух
+        // «пауза» означает «пусть замолчит», и включить музыку в ответ —
+        // ровно противоположное тому, о чём просили.
+        (IntentKind.MediaPause, new[]
+        {
+            "пауза", "паузу", "поставь на паузу", "стоп", "останови",
+            "останови музыку", "выключи музыку", "тихо", "замолчи",
+            "хватит", "приостанови", "pause", "stop",
+        }),
+        (IntentKind.MediaPlay, new[]
+        {
+            "продолжи", "продолжай", "включи обратно", "верни музыку",
+            "давай дальше", "плей", "play", "resume", "continue",
+        }),
         (IntentKind.MediaPlayPause, new[]
         {
-            "пауза", "поставь на паузу", "останови", "продолжи", "плей",
-            "pause", "play", "resume",
+            "переключи воспроизведение", "play pause", "toggle play",
+        }),
+        (IntentKind.NowPlaying, new[]
+        {
+            "что играет", "что сейчас играет", "что за трек", "что за песня",
+            "какая песня", "какой трек", "what is playing", "now playing",
         }),
         (IntentKind.MediaNext, new[]
         {
@@ -187,6 +206,39 @@ public static class CommandParser
         {
             "сделай скриншот", "скриншот", "снимок экрана", "сфоткай экран",
             "screenshot", "take a screenshot", "capture screen",
+        }),
+        (IntentKind.Sleep, new[]
+        {
+            "спящий режим", "уйди в сон", "усыпи компьютер", "режим сна", "sleep",
+        }),
+        (IntentKind.Time, new[]
+        {
+            "который час", "сколько времени", "сколько сейчас времени",
+            "текущее время", "what time is it",
+        }),
+        (IntentKind.NewTab, new[]
+        {
+            "новая вкладка", "открой вкладку", "новую вкладку", "new tab",
+        }),
+        (IntentKind.CloseTab, new[]
+        {
+            "закрой вкладку", "убери вкладку", "close tab",
+        }),
+        (IntentKind.BrowserBack, new[]
+        {
+            "вернись назад", "шаг назад", "предыдущая страница", "go back",
+        }),
+        (IntentKind.BrowserRefresh, new[]
+        {
+            "обнови страницу", "перезагрузи страницу", "refresh", "reload",
+        }),
+        (IntentKind.NextDesktop, new[]
+        {
+            "следующий рабочий стол", "next desktop",
+        }),
+        (IntentKind.PreviousDesktop, new[]
+        {
+            "предыдущий рабочий стол", "previous desktop",
         }),
     };
 
@@ -233,6 +285,11 @@ public static class CommandParser
         // возвращаем исходную: команда могла целиком состоять из таких слов.
         var cleaned = tokens.Where(t => !Fillers.Contains(t)).ToArray();
         if (cleaned.Length == 0) cleaned = tokens;
+
+        // Команды с числом или названием внутри разбираются раньше готовых:
+        // «сделай громкость тридцать» иначе рискует совпасть с «сделай тише».
+        var parametrized = MatchParametrized(cleaned);
+        if (parametrized is not null) return parametrized;
 
         var fixedMatch = MatchFixedCommand(cleaned);
         if (fixedMatch is not null) return fixedMatch;
@@ -327,6 +384,138 @@ public static class CommandParser
         return true;
     }
 
+    /// <summary>Слова, по которым узнаётся разговор о громкости.</summary>
+    private static readonly HashSet<string> VolumeWords = new(StringComparer.Ordinal)
+    {
+        "громкость", "громкости", "громкостью", "звук", "звука", "volume",
+    };
+
+    /// <summary>Слова, по которым узнаётся просьба напомнить через время.</summary>
+    private static readonly HashSet<string> TimerWords = new(StringComparer.Ordinal)
+    {
+        "таймер", "таймере", "напомни", "напоминание", "будильник", "засеки",
+        "timer", "remind",
+    };
+
+    /// <summary>Начала фраз, которыми просят переключиться на уже открытое окно.</summary>
+    private static readonly string[][] FocusOpeners =
+    {
+        new[] { "переключись", "на" },
+        new[] { "переключи", "на" },
+        new[] { "перейди", "в" },
+        new[] { "перейди", "к" },
+        new[] { "разверни" },
+        new[] { "покажи", "окно" },
+        new[] { "вернись", "в" },
+        new[] { "switch", "to" },
+        new[] { "focus" },
+    };
+
+    /// <summary>
+    /// Команды, у которых есть содержимое: число или название.
+    ///
+    /// Готовые команды сравниваются целиком, и такие фразы им не поддаются:
+    /// «сделай громкость тридцать» отличается от «сделай тише» не оборотом,
+    /// а числом внутри.
+    /// </summary>
+    private static Intent? MatchParametrized(string[] tokens)
+    {
+        if (tokens.Length == 0) return null;
+
+        // Громкость: нужны и слово про громкость, и число.
+        if (tokens.Any(VolumeWords.Contains))
+        {
+            var value = Numbers.First(tokens);
+            if (value is >= 0 and <= 100)
+            {
+                Log.Debug($"громкость на {value}", "nlu");
+                return new Intent(IntentKind.VolumeSet, value.Value.ToString());
+            }
+        }
+
+        // Таймер: нужны и слово про напоминание, и промежуток.
+        if (tokens.Any(TimerWords.Contains))
+        {
+            var duration = Numbers.Duration(tokens);
+            if (duration is { TotalSeconds: >= 5 and <= 24 * 3600 })
+            {
+                Log.Debug($"таймер на {duration}", "nlu");
+                return new Intent(IntentKind.Timer, ((int)duration.Value.TotalSeconds).ToString());
+            }
+        }
+
+        // Переключение на окно: оборот плюс то, на что переключаться.
+        foreach (var opener in FocusOpeners)
+        {
+            if (tokens.Length <= opener.Length) continue;
+            if (!StartsWith(tokens, opener)) continue;
+
+            var target = string.Join(' ', tokens[opener.Length..]
+                .Where(t => !TargetNoise.Contains(t)));
+
+            if (target.Length == 0) continue;
+
+            return new Intent(IntentKind.FocusWindow, target) { ExplicitVerb = true };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Союзы, по которым фраза может распадаться на несколько команд.
+    ///
+    /// «Ави, открой стим и сделай потише» — две просьбы в одном предложении,
+    /// и это самая обычная человеческая речь. Резать по ним вслепую нельзя:
+    /// «Гарри Поттер и узник Азкабана» — одно название, а не две команды.
+    /// Поэтому здесь только предлагаются места разреза, а решение принимается
+    /// выше — там, где известно, находится ли каждая часть в каталоге.
+    /// </summary>
+    private static readonly string[] Conjunctions =
+    {
+        "и", "а", "потом", "затем", "плюс", "также", "ещё", "еще",
+        "and", "then", "also",
+    };
+
+    /// <summary>
+    /// Делит фразу на возможные команды. Одна часть — значит, делить нечего.
+    /// </summary>
+    public static IReadOnlyList<string> Segments(string text)
+    {
+        var tokens = TextNormalizer.Tokenize(text);
+        if (tokens.Length < 4) return new[] { text };
+
+        var parts = new List<string>();
+        var current = new List<string>();
+
+        foreach (var token in tokens)
+        {
+            if (Conjunctions.Contains(token, StringComparer.Ordinal))
+            {
+                // Союз в самом начале — это затравка («а открой стим»),
+                // а не разделитель. И слишком короткий кусок командой не бывает.
+                if (current.Count >= 2)
+                {
+                    parts.Add(string.Join(' ', current));
+                    current.Clear();
+                    continue;
+                }
+
+                if (current.Count == 0) continue;
+            }
+
+            current.Add(token);
+        }
+
+        if (current.Count > 0) parts.Add(string.Join(' ', current));
+
+        // Хвост из одного слова — почти наверняка часть предыдущего названия,
+        // а не отдельная команда.
+        if (parts.Count > 1 && parts[^1].Split(' ').Length == 1 && parts[^1].Length < 4)
+            return new[] { text };
+
+        return parts.Count > 1 ? parts : new[] { text };
+    }
+
     private static Intent? MatchFixedCommand(string[] tokens)
     {
         var spokenKeys = tokens.Select(Translit.Keys).ToArray();
@@ -339,6 +528,13 @@ public static class CommandParser
             // Готовая команда описывает фразу целиком. Если сказано заметно
             // больше слов, это уже что-то другое — скорее всего запуск программы.
             if (tokens.Length > words + 1) continue;
+
+            // И наоборот: одно слово не может заменить двухсловную команду.
+            // Без этого правила «открой» совпадало с «открой вкладку»
+            // и превращало оборванную фразу в новую вкладку браузера.
+            // Короткие формы у всех команд перечислены отдельно, так что
+            // ничего нужного правило не отсекает.
+            if (tokens.Length == 1 && words > 1) continue;
 
             var score = FuzzyMatch.PhraseSimilarity(spokenKeys, keys);
             var threshold = words == 1 ? SingleWordThreshold : FixedCommandThreshold;

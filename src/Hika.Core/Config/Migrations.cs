@@ -29,6 +29,7 @@ public static class Migrations
 
         if (config.Version < 2) ToVersion2(config, changes);
         if (config.Version < 3) ToVersion3(config, changes);
+        if (config.Version < 4) ToVersion4(config, changes);
 
         config.Version = HikaConfig.CurrentVersion;
 
@@ -71,6 +72,20 @@ public static class Migrations
     {
         if (c.Behavior.WebSearchFallback)
             Change(changes, "поиск в интернете — только по просьбе", () => c.Behavior.WebSearchFallback = false);
+    }
+
+    /// <summary>
+    /// Версия 4 — мгновенная реакция на имя.
+    ///
+    /// Проверка имени стала скользящей и подешевела настолько, что ждать
+    /// перед первой попыткой больше незачем. Прежние шестьсот миллисекунд —
+    /// это ровно та задержка, которую человек видит глазами между «Хико»
+    /// и загоревшейся каймой.
+    /// </summary>
+    private static void ToVersion4(HikaConfig c, List<string> changes)
+    {
+        if (c.Speech.ProbeAfterMs is 600 or 900)
+            Change(changes, $"проверка имени {c.Speech.ProbeAfterMs} -> 350 мс", () => c.Speech.ProbeAfterMs = 350);
     }
 
     private static void Change(List<string> changes, string description, Action apply)

@@ -92,7 +92,7 @@ public class MigrationTests
         Assert.True(Migrations.Apply(config));
 
         Assert.Equal(400, config.Audio.SilenceMs);
-        Assert.Equal(600, config.Speech.ProbeAfterMs);
+        Assert.Equal(350, config.Speech.ProbeAfterMs);
         Assert.Equal(0.07, config.Overlay.Thickness, 6);
         Assert.Equal(HikaConfig.CurrentVersion, config.Version);
     }
@@ -143,7 +143,7 @@ public class MigrationTests
             var config = new ConfigStore(path).Load();
 
             Assert.Equal(400, config.Audio.SilenceMs);
-            Assert.Equal(600, config.Speech.ProbeAfterMs);
+            Assert.Equal(350, config.Speech.ProbeAfterMs);
             Assert.Equal("avi", config.Persona);
 
             // И перенос обязан сохраниться на диск, иначе он повторится

@@ -97,9 +97,17 @@ internal static class Win32
     internal const ushort VK_MEDIA_NEXT_TRACK = 0xB0;
     internal const ushort VK_MEDIA_PREV_TRACK = 0xB1;
     internal const ushort VK_MEDIA_PLAY_PAUSE = 0xB3;
+    internal const ushort VK_MEDIA_STOP = 0xB2;
     internal const ushort VK_LWIN = 0x5B;
     internal const ushort VK_SHIFT = 0x10;
+    internal const ushort VK_CONTROL = 0x11;
+    internal const ushort VK_MENU = 0x12;   // Alt
+    internal const ushort VK_LEFT = 0x25;
+    internal const ushort VK_RIGHT = 0x27;
+    internal const ushort VK_F5 = 0x74;
     internal const ushort VK_S = 0x53;
+    internal const ushort VK_T = 0x54;
+    internal const ushort VK_W = 0x57;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct KEYBDINPUT
@@ -193,6 +201,56 @@ internal static class Win32
 
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
+
+    // ---- Поиск и подъём окон ---------------------------------------------
+
+    internal const int SW_RESTORE = 9;
+
+    internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern int GetWindowTextW(IntPtr hWnd, System.Text.StringBuilder text, int count);
+
+    [DllImport("user32.dll")]
+    internal static extern int GetWindowTextLengthW(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("powrprof.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetSuspendState(
+        [MarshalAs(UnmanagedType.Bool)] bool hibernate,
+        [MarshalAs(UnmanagedType.Bool)] bool force,
+        [MarshalAs(UnmanagedType.Bool)] bool disableWakeEvent);
+
+    /// <summary>Заголовок окна или пустая строка.</summary>
+    internal static string WindowTitle(IntPtr hWnd)
+    {
+        var length = GetWindowTextLengthW(hWnd);
+        if (length <= 0) return "";
+
+        var buffer = new System.Text.StringBuilder(length + 1);
+        var written = GetWindowTextW(hWnd, buffer, buffer.Capacity);
+
+        return written > 0 ? buffer.ToString() : "";
+    }
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

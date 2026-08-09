@@ -2,6 +2,7 @@ using System.Net;
 using Hika.Catalog;
 using Hika.Config;
 using Hika.Diagnostics;
+using Hika.Interop;
 using Hika.Nlu;
 
 namespace Hika.Skills;
@@ -10,8 +11,15 @@ namespace Hika.Skills;
 public sealed class SkillRouter
 {
     private readonly AppCatalog _catalog;
+    private readonly Timers _timers;
 
-    public SkillRouter(AppCatalog catalog) => _catalog = catalog;
+    public SkillRouter(AppCatalog catalog, Timers? timers = null)
+    {
+        _catalog = catalog;
+        _timers = timers ?? new Timers();
+    }
+
+    public Timers Timers => _timers;
 
     public SkillResult Execute(Intent intent, BehaviorConfig behavior)
     {
@@ -21,20 +29,42 @@ public sealed class SkillRouter
             {
                 IntentKind.Launch => Launch(intent.Argument, behavior, intent.ExplicitVerb),
                 IntentKind.Search => Search(intent.Argument, behavior),
+                IntentKind.FocusWindow => Focus(intent.Argument, behavior),
 
                 IntentKind.VolumeUp => SystemActions.VolumeUp(),
                 IntentKind.VolumeDown => SystemActions.VolumeDown(),
                 IntentKind.VolumeMute => SystemActions.ToggleMute(),
+                IntentKind.VolumeSet => SystemActions.SetVolume(Number(intent.Argument, 50)),
 
-                IntentKind.MediaPlayPause => SystemActions.MediaPlayPause(),
-                IntentKind.MediaNext => SystemActions.MediaNext(),
-                IntentKind.MediaPrevious => SystemActions.MediaPrevious(),
+                // Всё, что касается воспроизведения, идёт через список сеансов
+                // Windows: там видно, кто именно играет, и пауза достаётся ему,
+                // а не уходит наугад мультимедийной клавишей.
+                IntentKind.MediaPlayPause => MediaSessions.PlayPause(),
+                IntentKind.MediaPause => MediaSessions.Pause(),
+                IntentKind.MediaPlay => MediaSessions.Play(),
+                IntentKind.MediaNext => MediaSessions.Next(),
+                IntentKind.MediaPrevious => MediaSessions.Previous(),
+                IntentKind.NowPlaying => MediaSessions.NowPlaying(),
 
                 IntentKind.LockWorkstation => SystemActions.LockWorkstation(),
                 IntentKind.ShowDesktop => SystemActions.ShowDesktop(),
                 IntentKind.MinimizeWindow => SystemActions.MinimizeActiveWindow(),
                 IntentKind.CloseWindow => SystemActions.CloseActiveWindow(),
                 IntentKind.Screenshot => SystemActions.Screenshot(),
+                IntentKind.Sleep => SystemActions.Sleep(),
+                IntentKind.Time => SystemActions.Time(),
+
+                IntentKind.Timer => _timers.Start(TimeSpan.FromSeconds(Number(intent.Argument, 300))),
+
+                IntentKind.NewTab => SystemActions.Combo("новая вкладка", Win32.VK_CONTROL, Win32.VK_T),
+                IntentKind.CloseTab => SystemActions.Combo("вкладка закрыта", Win32.VK_CONTROL, Win32.VK_W),
+                IntentKind.BrowserBack => SystemActions.Combo("шаг назад", Win32.VK_MENU, Win32.VK_LEFT),
+                IntentKind.BrowserRefresh => SystemActions.Combo("страница обновлена", Win32.VK_F5),
+
+                IntentKind.NextDesktop => SystemActions.Combo("следующий рабочий стол",
+                    Win32.VK_LWIN, Win32.VK_CONTROL, Win32.VK_RIGHT),
+                IntentKind.PreviousDesktop => SystemActions.Combo("предыдущий рабочий стол",
+                    Win32.VK_LWIN, Win32.VK_CONTROL, Win32.VK_LEFT),
 
                 _ => SkillResult.Fail("команда не распознана"),
             };
@@ -44,6 +74,27 @@ public sealed class SkillRouter
             Log.Error($"исполнение намерения {intent} сорвалось", ex, "skills");
             return SkillResult.Fail("внутренняя ошибка");
         }
+    }
+
+    private static int Number(string argument, int fallback)
+        => int.TryParse(argument, out var value) ? value : fallback;
+
+    /// <summary>
+    /// Переключение на открытое окно, а если такого нет — обычный запуск.
+    ///
+    /// Второе важно не меньше первого: «переключись на хром» при закрытом
+    /// браузере значит «пусть он будет передо мной», и отвечать на это
+    /// отказом было бы формализмом.
+    /// </summary>
+    private SkillResult Focus(string phrase, BehaviorConfig behavior)
+    {
+        if (string.IsNullOrWhiteSpace(phrase)) return SkillResult.Fail("не понял, на что переключиться");
+
+        var focused = WindowSwitcher.TryFocus(phrase);
+        if (focused is not null) return focused;
+
+        Log.Info($"окна «{phrase}» нет — пробую запустить", "skills");
+        return Launch(phrase, behavior, explicitVerb: true);
     }
 
     private SkillResult Launch(string phrase, BehaviorConfig behavior, bool explicitVerb)

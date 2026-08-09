@@ -14,15 +14,48 @@ public enum IntentKind
     VolumeDown,
     VolumeMute,
 
+    /// <summary>Громкость на столько-то процентов. Аргумент — число.</summary>
+    VolumeSet,
+
     MediaPlayPause,
+
+    /// <summary>Именно остановить, а не переключить: «пауза», «стоп».</summary>
+    MediaPause,
+
+    /// <summary>Именно продолжить: «продолжи», «включи обратно».</summary>
+    MediaPlay,
+
     MediaNext,
     MediaPrevious,
+
+    /// <summary>Сказать, что играет.</summary>
+    NowPlaying,
 
     LockWorkstation,
     ShowDesktop,
     MinimizeWindow,
     CloseWindow,
     Screenshot,
+
+    /// <summary>Перевести компьютер в сон.</summary>
+    Sleep,
+
+    /// <summary>Переключиться на окно. Аргумент — часть его заголовка.</summary>
+    FocusWindow,
+
+    /// <summary>Сказать время.</summary>
+    Time,
+
+    /// <summary>Напомнить через промежуток. Аргумент — секунды.</summary>
+    Timer,
+
+    NewTab,
+    CloseTab,
+    BrowserBack,
+    BrowserRefresh,
+
+    NextDesktop,
+    PreviousDesktop,
 }
 
 public sealed record Intent(IntentKind Kind, string Argument = "", double Confidence = 1.0)

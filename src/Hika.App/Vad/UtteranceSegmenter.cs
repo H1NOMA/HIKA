@@ -42,6 +42,8 @@ public sealed class UtteranceSegmenter
     private int _minSpeech;
     private int _maxUtterance;
     private int _probeAt;
+    private int _probeInterval;
+    private int _probeWindow;
     private bool _probeEnabled;
 
     public SegmenterState State { get; private set; } = SegmenterState.Silence;
@@ -85,6 +87,8 @@ public sealed class UtteranceSegmenter
         _minSpeech = AudioFormat.MsToSamples(config.MinSpeechMs);
         _maxUtterance = AudioFormat.MsToSamples(config.MaxUtteranceMs);
         _probeAt = AudioFormat.MsToSamples(speech.ProbeAfterMs);
+        _probeInterval = AudioFormat.MsToSamples(Math.Max(80, speech.ProbeIntervalMs));
+        _probeWindow = AudioFormat.MsToSamples(Math.Max(600, speech.ProbeWindowMs));
         _probeEnabled = speech.EarlyWakeProbe;
 
         var wantPreRoll = Math.Max(AudioFormat.FrameSamples, AudioFormat.MsToSamples(config.PreRollMs));
@@ -188,24 +192,50 @@ public sealed class UtteranceSegmenter
         catch (Exception ex) { Log.Error("обработчик готовой фразы упал", ex, "vad"); }
     }
 
+    /// <summary>
+    /// Ранние проверки имени — скользящие.
+    ///
+    /// Раньше их было две: одна в начале, вторая заметно позже. Между ними
+    /// зияла секунда, в которую имя, произнесённое не с первого слога,
+    /// не находилось вовсе, — и кайма загоралась только по концу фразы.
+    ///
+    /// Теперь проверка повторяется каждые несколько сотен миллисекунд, пока
+    /// имя не найдено. Позволяет это две вещи: во-первых, каждой проверке
+    /// достаётся не вся накопленная речь, а только её последний кусок, так что
+    /// стоимость не растёт вместе с фразой; во-вторых, окно кодировщика у неё
+    /// своё, самое узкое. В сумме одна проверка стоит десятков миллисекунд —
+    /// дешевле, чем раньше стоила одна из двух.
+    /// </summary>
     private void MaybeProbe()
     {
-        if (!_probeEnabled || _probesIssued >= 2) return;
+        if (!_probeEnabled || _probesIssued >= MaxProbes) return;
 
-        // Первая проверка — как только накопилось ProbeAfterMs речи.
-        // Вторая — заметно позже, на случай если человек начал издалека
-        // («так, э-э, Ави, открой ютуб»).
-        var trigger = _probesIssued == 0 ? _probeAt : _probeAt + AudioFormat.MsToSamples(1100);
+        var trigger = _probeAt + _probesIssued * _probeInterval;
         if (_speechSamples < trigger) return;
 
         _probesIssued++;
 
-        var copy = new float[_utteranceLength];
-        Array.Copy(_utterance, copy, _utteranceLength);
+        // Только последний кусок записи: имя звучит в начале фразы, но
+        // окно шириной в полторы секунды накрывает его при любом разумном
+        // темпе речи, а стоимость проверки остаётся постоянной.
+        var take = Math.Min(_utteranceLength, _probeWindow);
+        var from = _utteranceLength - take;
+
+        var copy = new float[take];
+        Array.Copy(_utterance, from, copy, 0, take);
 
         try { ProbeReady?.Invoke(copy, _probesIssued); }
         catch (Exception ex) { Log.Error("обработчик ранней проверки упал", ex, "vad"); }
     }
+
+    /// <summary>
+    /// Предел числа проверок на одну фразу.
+    ///
+    /// Дальше искать имя бессмысленно: если его не было в первых полутора
+    /// секундах, обращались не к нам, и продолжать значит впустую занимать
+    /// распознавание — то самое, которое понадобится следующей команде.
+    /// </summary>
+    private const int MaxProbes = 6;
 
     private void GuardMaxLength()
     {

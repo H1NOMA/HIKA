@@ -57,6 +57,29 @@ public sealed class WhisperRecognizer : ISpeechRecognizer
         set => _singleSegment = value;
     }
 
+    /// <summary>Прогревает модель холостым проходом.</summary>
+    /// <remarks>
+    /// Первое распознавание всегда заметно дольше остальных: выделяется память,
+    /// прогреваются кэши. Достаётся это ожидание первой же команде человека —
+    /// то есть ровно тому моменту, по которому складывается впечатление
+    /// о скорости всей программы. Дешевле потратить его на тишину при запуске.
+    /// </remarks>
+    public async Task WarmUpAsync()
+    {
+        if (_processor is null) return;
+
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            await TranscribeAsync(new float[AudioFormat.SampleRate]).ConfigureAwait(false);
+            Log.Debug($"модель прогрета за {sw.ElapsedMilliseconds} мс", "stt");
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"прогрев не удался: {ex.Message}", "stt");
+        }
+    }
+
     /// <summary>
     /// Словарь, который подкладывается модели как контекст.
     ///
@@ -106,9 +129,19 @@ public sealed class WhisperRecognizer : ISpeechRecognizer
             _adaptiveContext = cfg.AdaptiveContext;
             _fastDecoding = cfg.FastDecoding;
 
-            // Начинаем с самой узкой ступени: почти любая команда в неё
-            // укладывается, а если нет — окно вырастет на первой же длинной фразе.
-            _audioContext = _adaptiveContext ? WhisperTuning.AudioContextFor(2.0) : 0;
+            // Ранняя проверка получает своё окно, самое узкое, и больше
+            // не меняет его: длина куска у неё постоянна по определению.
+            // Основная начинает с узкой ступени — почти любая команда в неё
+            // укладывается, а если нет, окно вырастет на первой длинной фразе.
+            if (_singleSegment)
+            {
+                _adaptiveContext = false;
+                _audioContext = WhisperTuning.ProbeContext;
+            }
+            else
+            {
+                _audioContext = _adaptiveContext ? WhisperTuning.AudioContextFor(2.0) : 0;
+            }
 
             _factory = WhisperFactory.FromPath(modelPath);
             _processor = BuildProcessor();
@@ -181,7 +214,13 @@ public sealed class WhisperRecognizer : ISpeechRecognizer
                 builder = greedy.WithBestOf(1).ParentBuilder;
         }
 
-        if (_singleSegment) builder = builder.WithSingleSegment();
+        if (_singleSegment)
+        {
+            // Проверке имени нужны первые слова, а не вся фраза. Декодировать
+            // до конца — это время, которое человек проводит, глядя
+            // на неосветившийся экран.
+            builder = builder.WithSingleSegment().WithMaxTokensPerSegment(16);
+        }
 
         return builder.Build();
     }

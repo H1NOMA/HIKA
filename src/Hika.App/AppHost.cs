@@ -53,6 +53,7 @@ public sealed class AppHost : IDisposable
 
     private readonly VoiceService _voice = new();
     private readonly ClaudeBrain _brain = new();
+    private readonly Timers _timers = new();
     private LearningEngine? _learning;
 
     private IVoiceActivityDetector? _vad;
@@ -125,7 +126,10 @@ public sealed class AppHost : IDisposable
 
         _catalog.Prior = _learning;
         _catalog.Load(config);
-        _router = new SkillRouter(_catalog);
+
+        _router = new SkillRouter(_catalog, _timers);
+        _timers.Fired += OnTimerFired;
+
         _wakeMatcher = new WakeWordMatcher(WithLearnedVariants(config.Wake));
 
         if (config.Overlay.Enabled) _overlay.Start(config.Overlay, config.Persona);
@@ -275,6 +279,13 @@ public sealed class AppHost : IDisposable
 
             await LoadProbeModelAsync(config, words).ConfigureAwait(false);
 
+            // Прогрев обеих моделей. Первое распознавание всегда заметно
+            // дольше остальных, и без прогрева это ожидание достаётся первой
+            // же команде человека — тому самому моменту, по которому
+            // складывается впечатление о скорости всей программы.
+            await _recognizer.WarmUpAsync().ConfigureAwait(false);
+            if (!_probeSharesMain) await _probeOwned.WarmUpAsync().ConfigureAwait(false);
+
             Log.Info("=== HIKA готова слушать ===", "host");
         }
         catch (Exception ex)
@@ -407,6 +418,23 @@ public sealed class AppHost : IDisposable
     }
 
     // ---- Голос -------------------------------------------------------------
+
+    /// <summary>
+    /// Таймер сработал.
+    ///
+    /// Говорим и показываем одновременно: человек ставил таймер, чтобы
+    /// отвлечься на другое, и вполне мог за это время выйти из комнаты
+    /// или надеть наушники. Один способ сообщить здесь ненадёжен.
+    /// </summary>
+    private void OnTimerFired(string message)
+    {
+        Log.Info(message, "host");
+
+        _voice.Say(message);
+        StartupProblem?.Invoke(message);
+
+        _overlay.SetState(OverlayState.Success);
+    }
 
     private void OnSpeakingChanged(bool speaking)
     {
@@ -731,7 +759,7 @@ public sealed class AppHost : IDisposable
             behavior = ShallowCopyWithoutSearchFallback(behavior);
         }
 
-        var outcome = _router.Execute(intent, behavior);
+        var outcome = ExecutePlan(command, intent, behavior);
         Log.Info($"итог: {(outcome.Success ? "выполнено" : "не вышло")} — {outcome.Description} (всего {stopwatch.ElapsedMilliseconds} мс)", "host");
 
         journal.Intent = outcome.Success ? outcome.Description : intent.ToString();
@@ -759,9 +787,90 @@ public sealed class AppHost : IDisposable
         Record(journal, command);
 
         if (!outcome.Success) SayFailure(outcome.Description);
-        else if (_configStore.Current.Voice.SpeakConfirmations) _voice.Say(outcome.Description);
+        else if (SpeaksResult(intent.Kind) || _configStore.Current.Voice.SpeakConfirmations)
+            _voice.Say(outcome.Description);
 
         Finish(outcome.Success, stopwatch);
+    }
+
+    /// <summary>
+    /// Команды, у которых результат и есть ответ.
+    ///
+    /// «Который час» без произнесённого времени — не выполненная команда,
+    /// а молчание. Такие озвучиваются всегда, независимо от того, просил ли
+    /// человек подтверждать вслух обычные действия.
+    /// </summary>
+    private static bool SpeaksResult(IntentKind kind)
+        => kind is IntentKind.Time or IntentKind.NowPlaying or IntentKind.Timer;
+
+    /// <summary>
+    /// Выполняет сказанное — целиком или по частям.
+    ///
+    /// «Ави, открой стим и сделай потише» — две просьбы в одном предложении,
+    /// и это самая обычная речь. Резать по союзам вслепую нельзя: «Гарри
+    /// Поттер и узник Азкабана» — одно название, а не две команды.
+    ///
+    /// Поэтому решает не форма фразы, а исполнимость: делим только тогда,
+    /// когда каждая часть по отдельности узнаётся — либо это готовая команда,
+    /// либо она находится в каталоге. Целая фраза при этом имеет приоритет:
+    /// если она узнаётся сама, делить нечего.
+    /// </summary>
+    private SkillResult ExecutePlan(string command, Intent whole, BehaviorConfig behavior)
+    {
+        if (_router is null) return SkillResult.Fail("нечем выполнять");
+
+        var plan = BuildPlan(command, whole, behavior);
+
+        if (plan.Count <= 1) return _router.Execute(whole, behavior);
+
+        Log.Info($"в предложении {plan.Count} команды: {string.Join(" | ", plan)}", "host");
+
+        var results = new List<SkillResult>();
+        foreach (var step in plan)
+        {
+            var result = _router.Execute(step, behavior);
+            results.Add(result);
+
+            Log.Debug($"часть {step}: {(result.Success ? "выполнено" : "не вышло")}", "host");
+        }
+
+        var done = results.Where(r => r.Success).Select(r => r.Description).ToList();
+        if (done.Count == 0) return results[0];
+
+        return SkillResult.Ok(string.Join(", ", done)) with
+        {
+            EntryId = results.FirstOrDefault(r => r.Success && r.EntryId.Length > 0)?.EntryId ?? "",
+        };
+    }
+
+    private List<Intent> BuildPlan(string command, Intent whole, BehaviorConfig behavior)
+    {
+        var single = new List<Intent> { whole };
+
+        // Готовая команда описывает фразу целиком — делить уже нечего.
+        if (whole.Kind is not (IntentKind.Launch or IntentKind.None)) return single;
+
+        var segments = CommandParser.Segments(command);
+        if (segments.Count < 2) return single;
+
+        var parsed = segments.Select(CommandParser.Parse).ToList();
+        if (parsed.Any(i => !i.IsActionable)) return single;
+
+        // Каждая часть обязана узнаваться сама по себе. Для запуска это
+        // означает попадание в каталог: без проверки «Гарри Поттер и узник
+        // Азкабана» распалось бы на две несуществующие программы.
+        foreach (var intent in parsed)
+        {
+            if (intent.Kind != IntentKind.Launch) continue;
+            if (_catalog.Resolve(intent.Argument, behavior.MatchThreshold) is null) return single;
+        }
+
+        // Если целая фраза и сама находится в каталоге, она вернее частей:
+        // название из двух слов через «и» встречается чаще, чем две команды.
+        var anyFixed = parsed.Any(i => i.Kind is not (IntentKind.Launch or IntentKind.Search));
+        if (!anyFixed && _catalog.Resolve(whole.Argument, behavior.MatchThreshold) is not null) return single;
+
+        return parsed;
     }
 
     // ---- Разговор ----------------------------------------------------------
@@ -1048,7 +1157,7 @@ public sealed class AppHost : IDisposable
             _wakeMatcher = new WakeWordMatcher(WithLearnedVariants(config.Wake));
             _learning?.Reconfigure(config.Learning);
             _catalog.Load(config);
-            _router = new SkillRouter(_catalog);
+            _router = new SkillRouter(_catalog, _timers);
 
             // Голос и разговор — в фоне: перечисление голосов лезет в систему,
             // а окно настроек должно закрыться сразу, а не через секунду.
@@ -1092,6 +1201,7 @@ public sealed class AppHost : IDisposable
         try { _worker?.Join(1500); } catch { }
 
         try { _reindexTimer?.Dispose(); } catch { }
+        try { _timers.Dispose(); } catch { }
         try { _voice.Dispose(); } catch { }
         try { _brain.Dispose(); } catch { }
 

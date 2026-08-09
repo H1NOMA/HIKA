@@ -68,16 +68,47 @@ public static class SystemActions
         }
     }
 
-    public static SkillResult MediaPlayPause() => TapMedia(Win32.VK_MEDIA_PLAY_PAUSE, "воспроизведение переключено");
-    public static SkillResult MediaNext() => TapMedia(Win32.VK_MEDIA_NEXT_TRACK, "следующий трек");
-    public static SkillResult MediaPrevious() => TapMedia(Win32.VK_MEDIA_PREV_TRACK, "предыдущий трек");
+    /// <summary>
+    /// Громкость на заданное число процентов.
+    ///
+    /// Абсолютное значение, а не шаг: «сделай тридцать» — это тридцать,
+    /// сколько бы ни стояло до того. Шагами это выражается только чередой
+    /// команд, и человек их произносить не станет.
+    /// </summary>
+    public static SkillResult SetVolume(int percent)
+    {
+        percent = Math.Clamp(percent, 0, 100);
 
-    private static SkillResult TapMedia(ushort key, string description)
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+
+            var volume = device.AudioEndpointVolume;
+            volume.MasterVolumeLevelScalar = percent / 100f;
+
+            // Ноль процентов — это и есть просьба о тишине; всё остальное
+            // подразумевает, что звук должен быть слышен.
+            volume.Mute = percent == 0;
+
+            Log.Info($"громкость {percent}%", "system");
+            return SkillResult.Ok($"громкость {percent} процентов");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("не удалось выставить громкость", ex, "system");
+            return SkillResult.Fail("громкость недоступна");
+        }
+    }
+
+    // Управление воспроизведением живёт в MediaSessions: там видно, кто именно
+    // играет, и пауза адресуется ему, а не уходит в никуда мультимедийной
+    // клавишей. Здесь остаётся только та самая клавиша — как запасной путь.
+
+    public static SkillResult TapMedia(ushort key, string description)
     {
         try
         {
-            // Мультимедийные клавиши — единственный способ достучаться сразу до всех
-            // плееров: их слушают и Spotify, и браузеры, и системный проигрыватель.
             Win32.TapKey(key);
             Log.Info(description, "system");
             return SkillResult.Ok(description);
@@ -86,6 +117,59 @@ public static class SystemActions
         {
             Log.Error("медиаклавиша не отправилась", ex, "system");
             return SkillResult.Fail("не вышло");
+        }
+    }
+
+    /// <summary>Сочетание клавиш активному окну — вкладки, обновление, шаг назад.</summary>
+    public static SkillResult Combo(string description, params ushort[] keys)
+    {
+        try
+        {
+            Win32.TapCombo(keys);
+            Log.Info(description, "system");
+            return SkillResult.Ok(description);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"сочетание клавиш не отправилось: {description}", ex, "system");
+            return SkillResult.Fail("не вышло");
+        }
+    }
+
+    public static SkillResult Time()
+    {
+        var now = DateTime.Now;
+        var text = now.ToString("HH:mm");
+
+        Log.Info($"время: {text}", "system");
+        return SkillResult.Ok($"сейчас {text}");
+    }
+
+    /// <summary>
+    /// Сон, а не выключение.
+    ///
+    /// Выключения и перезагрузки здесь нет намеренно. Ассистент, срабатывающий
+    /// от похожего слова, не должен иметь права выключить компьютер: цена
+    /// одной ошибки — несохранённая работа за весь день. Сон обратим одним
+    /// движением мыши, и цена ошибки в нём — секунда.
+    /// </summary>
+    public static SkillResult Sleep()
+    {
+        try
+        {
+            if (Win32.SetSuspendState(hibernate: false, force: false, disableWakeEvent: false))
+            {
+                Log.Info("компьютер уходит в сон", "system");
+                return SkillResult.Ok("ухожу в сон");
+            }
+
+            Log.Warn("сон не сработал", "system");
+            return SkillResult.Fail("не вышло уйти в сон");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("сон не сработал", ex, "system");
+            return SkillResult.Fail("не вышло уйти в сон");
         }
     }
 
