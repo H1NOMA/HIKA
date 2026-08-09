@@ -59,7 +59,11 @@ public sealed class EdgeSpeaker : ISpeaker
     public VoiceInfo? Current { get; private set; }
     public IReadOnlyList<VoiceInfo> Voices => _voices;
 
-    public async Task<bool> PrepareAsync(string preferredVoice, string language, CancellationToken ct)
+    /// <param name="neuralOnly">
+    /// Здесь ни на что не влияет: других голосов у этого движка нет —
+    /// все до единого нейросетевые.
+    /// </param>
+    public async Task<bool> PrepareAsync(string preferredVoice, string language, bool neuralOnly, CancellationToken ct)
     {
         await RefreshVoiceListAsync(ct).ConfigureAwait(false);
 

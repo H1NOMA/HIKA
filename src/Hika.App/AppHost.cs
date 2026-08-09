@@ -164,12 +164,21 @@ public sealed class AppHost : IDisposable
             {
                 await _voice.StartAsync(config.Voice, config.Speech.Language, _shutdown.Token).ConfigureAwait(false);
 
-                if (config.Voice.Enabled && _voice.SoundsRobotic)
+                if (config.Voice.Enabled && _voice.NeuralMissing)
                 {
                     StartupProblem?.Invoke(
-                        "Голос будет механическим: нейроголоса в Windows не установлены. " +
-                        "Ставятся один раз: Параметры → Время и язык → Речь → Управление голосами → " +
-                        "Добавить голоса → русский. Либо в настройках HIKA выберите «нейроголоса Microsoft».");
+                        "Отвечать голосом не буду: нейроголоса в Windows не установлены, " +
+                        "а механическим говорить незачем — он режет слух.\n\n" +
+                        "Ставятся один раз, за пять минут: Параметры → Время и язык → Речь → " +
+                        "Управление голосами → Добавить голоса → русский (нужен тот, у кого " +
+                        "в названии есть «Natural»).\n\n" +
+                        "Либо в настройках HIKA выберите «Нейроголоса Microsoft (через интернет)».");
+                }
+                else if (config.Voice.Enabled && _voice.SoundsRobotic)
+                {
+                    StartupProblem?.Invoke(
+                        "Голос будет механическим: выбран обычный голос Windows. " +
+                        "В настройках, раздел «Голос», можно вернуть требование нейроголоса.");
                 }
             }
             catch (Exception ex) { Log.Error("озвучка не поднялась", ex, "host"); }
@@ -312,6 +321,11 @@ public sealed class AppHost : IDisposable
                 _probeRecognizer = _recognizer;
                 return;
             }
+
+            // Ранняя проверка отвечает на единственный вопрос — прозвучало ли
+            // имя. Декодировать фразу до конца ради этого незачем: человек
+            // в это время смотрит на неосветившийся экран.
+            _probeOwned.ProbeMode = true;
 
             if (await _probeOwned.LoadAsync(path, config.Speech, words).ConfigureAwait(false))
             {

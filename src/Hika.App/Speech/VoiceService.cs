@@ -92,13 +92,19 @@ public sealed class VoiceService : IDisposable
         // нейроголос, установленный в самой Windows. Он звучит так же хорошо
         // и при этом никуда ничего не отправляет. Голоса из интернета
         // включаются только тогда, когда человек выбрал их сам.
+        var neuralOnly = _config.NeuralOnly;
+
         if (engine == "edge")
         {
-            if (await _edge.PrepareAsync(_config.Voice, _language, ct).ConfigureAwait(false))
+            if (await _edge.PrepareAsync(_config.Voice, _language, neuralOnly, ct).ConfigureAwait(false))
             {
                 _primary = _edge;
+
                 // Местный голос держим наготове: интернет пропадает, а отвечать надо.
-                if (await _windows.PrepareAsync("", _language, ct).ConfigureAwait(false)) _fallback = _windows;
+                // Но только если он нейросетевой — механическим запасным вариантом
+                // ответ становится хуже, чем неотвеченным.
+                if (await _windows.PrepareAsync("", _language, neuralOnly, ct).ConfigureAwait(false))
+                    _fallback = _windows;
 
                 Finish(_edge, robotic: false);
                 return;
@@ -108,7 +114,7 @@ public sealed class VoiceService : IDisposable
             engine = "windows";
         }
 
-        if (await _windows.PrepareAsync(_config.Voice, _language, ct).ConfigureAwait(false))
+        if (await _windows.PrepareAsync(_config.Voice, _language, neuralOnly, ct).ConfigureAwait(false))
         {
             _primary = _windows;
             _fallback = null;
@@ -116,19 +122,37 @@ public sealed class VoiceService : IDisposable
             return;
         }
 
-        // Голосов в Windows не оказалось вовсе — редкость, но случается
-        // на урезанных сборках системы. Тогда интернет остаётся единственным.
-        if (engine != "edge" && await _edge.PrepareAsync(_config.Voice, _language, ct).ConfigureAwait(false))
+        // Нейроголосов в Windows нет. Раньше здесь брался механический —
+        // и ровно за это пришлось выслушать, что звук режет ухо. Теперь
+        // остаётся интернет, а если и его нет — молчание.
+        if (engine != "edge" && await _edge.PrepareAsync(_config.Voice, _language, neuralOnly, ct).ConfigureAwait(false))
         {
             _primary = _edge;
             Finish(_edge, robotic: false);
+            NeuralMissing = !_windows.HasNeuralVoice;
             return;
         }
 
-        Description = "голосов в системе не нашлось";
+        NeuralMissing = !_windows.HasNeuralVoice && _windows.Voices.Count > 0;
+
+        Description = NeuralMissing
+            ? "нейроголоса не установлены — молчу"
+            : "голосов в системе не нашлось";
+
         _ready = false;
-        Log.Error("озвучивать нечем: ни голосов Windows, ни доступа к нейроголосам", "voice");
+
+        Log.Warn(NeuralMissing
+            ? "озвучивать нечем: нейроголосов в системе нет, а механическим говорить не буду"
+            : "озвучивать нечем: ни голосов Windows, ни доступа к нейроголосам", "voice");
     }
+
+    /// <summary>
+    /// Голоса в системе есть, но все механические.
+    ///
+    /// Отличается от «голосов нет вовсе» тем, что здесь у человека
+    /// есть понятное действие: поставить нейроголоса за пять минут.
+    /// </summary>
+    public bool NeuralMissing { get; private set; }
 
     private void Finish(ISpeaker speaker, bool robotic)
     {
@@ -263,7 +287,9 @@ public sealed class VoiceService : IDisposable
 
         try
         {
-            await _windows.PrepareAsync(_config.Voice, _language, ct).ConfigureAwait(false);
+            // Здесь спрашиваем без ограничения: список показывает всё, что есть
+            // в системе, включая механические. Выбирать из них — другой вопрос.
+            await _windows.PrepareAsync(_config.Voice, _language, neuralOnly: false, ct).ConfigureAwait(false);
             result.AddRange(_windows.Voices);
         }
         catch { }
@@ -272,7 +298,7 @@ public sealed class VoiceService : IDisposable
         {
             try
             {
-                await _edge.PrepareAsync(_config.Voice, _language, ct).ConfigureAwait(false);
+                await _edge.PrepareAsync(_config.Voice, _language, neuralOnly: true, ct).ConfigureAwait(false);
                 result.AddRange(_edge.Voices);
             }
             catch { }

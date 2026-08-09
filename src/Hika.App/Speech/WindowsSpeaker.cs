@@ -37,7 +37,7 @@ public sealed class WindowsSpeaker : ISpeaker
     /// <summary>Нейроголос найден и выбран. Если нет — звук будет заметно хуже.</summary>
     public bool UsingNeural => Current?.IsNeural == true;
 
-    public Task<bool> PrepareAsync(string preferredVoice, string language, CancellationToken ct)
+    public Task<bool> PrepareAsync(string preferredVoice, string language, bool neuralOnly, CancellationToken ct)
     {
         try
         {
@@ -57,17 +57,24 @@ public sealed class WindowsSpeaker : ISpeaker
                 return Task.FromResult(false);
             }
 
-            _synthesizer.Voice = _chosen;
-            Current = new VoiceInfo(_chosen.Id, _chosen.DisplayName, _chosen.Language, IsNeural(_chosen));
+            var neural = IsNeural(_chosen);
 
-            Log.Info($"голос Windows: {Current.Describe()} [{Current.Language}], всего доступно {_voices.Count}", "voice");
-
-            if (!Current.IsNeural)
+            // Механический голос хуже молчания. «Хоть что-то сказала» выглядит
+            // вежливым решением ровно до первой услышанной фразы.
+            if (neuralOnly && !neural)
             {
-                Log.Info("нейроголосов в системе нет — звук будет механическим. " +
-                         "Ставятся в Параметры -> Время и язык -> Речь -> Управление голосами", "voice");
+                Log.Info($"нейроголосов в Windows нет (нашлось {_voices.Count} обычных) — молчу, " +
+                         "чтобы не резать слух. Ставятся в Параметры -> Время и язык -> Речь -> " +
+                         "Управление голосами -> Добавить голоса", "voice");
+                _chosen = null;
+                Current = null;
+                return Task.FromResult(false);
             }
 
+            _synthesizer.Voice = _chosen;
+            Current = new VoiceInfo(_chosen.Id, _chosen.DisplayName, _chosen.Language, neural);
+
+            Log.Info($"голос Windows: {Current.Describe()} [{Current.Language}], всего доступно {_voices.Count}", "voice");
             return Task.FromResult(true);
         }
         catch (Exception ex)
@@ -76,6 +83,9 @@ public sealed class WindowsSpeaker : ISpeaker
             return Task.FromResult(false);
         }
     }
+
+    /// <summary>Есть ли в системе хоть один нейроголос. Для отчётов и подсказок.</summary>
+    public bool HasNeuralVoice => _voices.Any(v => v.IsNeural);
 
     /// <summary>
     /// Нейроголос узнаётся по названию: Microsoft помечает их словом Natural

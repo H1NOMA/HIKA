@@ -35,8 +35,14 @@ public interface ISpeaker : IDisposable
     /// </summary>
     Task<SynthesizedAudio?> SynthesizeAsync(string text, VoiceSettings settings, CancellationToken ct);
 
-    /// <summary>Перечитать список голосов и выбрать подходящий.</summary>
-    Task<bool> PrepareAsync(string preferredVoice, string language, CancellationToken ct);
+    /// <summary>
+    /// Перечитать список голосов и выбрать подходящий.
+    /// </summary>
+    /// <param name="neuralOnly">
+    /// Согласиться только на нейроголос. Не нашлось такого — вернуть false
+    /// и промолчать, а не брать механический.
+    /// </param>
+    Task<bool> PrepareAsync(string preferredVoice, string language, bool neuralOnly, CancellationToken ct);
 }
 
 /// <summary>Готовый звук и то, как его читать.</summary>

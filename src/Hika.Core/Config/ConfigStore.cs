@@ -44,7 +44,7 @@ public sealed class ConfigStore : IDisposable
 
                 if (!File.Exists(_path))
                 {
-                    Current = new HikaConfig();
+                    Current = new HikaConfig { Version = HikaConfig.CurrentVersion };
                     Save();
                     Log.Info($"создан файл настроек: {_path}", "config");
                 }
@@ -56,6 +56,8 @@ public sealed class ConfigStore : IDisposable
 
                     // Файл мог быть написан руками и оказаться неполным — досыпаем недостающее.
                     Normalize(Current);
+
+                    if (Migrations.Apply(Current)) Save();
                 }
             }
             catch (Exception ex)

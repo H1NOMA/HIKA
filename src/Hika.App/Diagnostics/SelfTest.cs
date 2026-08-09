@@ -142,6 +142,11 @@ public static class SelfTest
         }
         Line();
 
+        // ---- Скорость ----
+        Line("── Скорость распознавания ─────────────────────────────────────");
+        await MeasureSpeedAsync(config, Line).ConfigureAwait(false);
+        Line();
+
         // ---- Голос, разговор, наблюдения ----
         Line("── Голос ──────────────────────────────────────────────────────");
         if (!config.Voice.Enabled)
@@ -218,6 +223,62 @@ public static class SelfTest
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Замеряет, сколько времени уходит на одну команду.
+    ///
+    /// Существует затем, чтобы «очень сильная задержка» превратилась в число.
+    /// Двухсекундная запись — типичная длина команды; звук в ней не важен,
+    /// потому что почти всё время съедает кодировщик, а он работает одинаково
+    /// и на речи, и на тишине.
+    /// </summary>
+    private static async Task MeasureSpeedAsync(HikaConfig config, Action<string> line)
+    {
+        var modelPath = WhisperModelProvider.FindLocal(config.Speech);
+
+        if (modelPath is null)
+        {
+            line("  Модель ещё не скачана — мерить нечего.");
+            return;
+        }
+
+        using var recognizer = new WhisperRecognizer();
+
+        if (!await recognizer.LoadAsync(modelPath, config.Speech, new[] { "ави", "хика" }).ConfigureAwait(false))
+        {
+            line("  Модель не загрузилась.");
+            return;
+        }
+
+        var sample = new float[AudioFormat.SampleRate * 2];
+
+        // Первый прогон греет кэши и выделяет память — он не показателен.
+        await recognizer.TranscribeAsync(sample).ConfigureAwait(false);
+
+        var times = new List<double>();
+        for (int i = 0; i < 3; i++)
+        {
+            var result = await recognizer.TranscribeAsync(sample).ConfigureAwait(false);
+            times.Add(result.Elapsed.TotalMilliseconds);
+        }
+
+        var best = times.Min();
+
+        line($"  Модель: {recognizer.Description}");
+        line($"  Окно кодировщика: {(recognizer.AudioContext > 0 ? recognizer.AudioContext.ToString() : "полное (1500)")}");
+        line($"  Две секунды звука: {best:F0} мс (замеры: {string.Join(", ", times.Select(t => $"{t:F0}"))})");
+        line("");
+
+        if (best < 400) line("  Это быстро: команда выполнится почти сразу после того, как договорите.");
+        else if (best < 1200) line("  Терпимо: заметная, но не раздражающая пауза.");
+        else
+        {
+            line("  МЕДЛЕННО. Что помогает, по убыванию действенности:");
+            line("   1. Сборка hika-win-x64-vulkan — считает на видеокарте.");
+            line($"   2. Модель поменьше: сейчас «{config.Speech.Model}», попробуйте «base».");
+            line("   3. Убедиться, что включено «Считать по длине фразы» в настройках.");
+        }
     }
 
     private static async Task RecordAndAnalyzeAsync(

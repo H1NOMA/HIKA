@@ -64,6 +64,8 @@ public sealed class SettingsWindow : Form
     private DropDownField _language = null!;
     private SliderField _threads = null!;
     private ToggleSwitch _earlyProbe = null!;
+    private ToggleSwitch _adaptiveContext = null!;
+    private ToggleSwitch _fastDecoding = null!;
     private SliderField _probeAfterMs = null!;
 
     private ToggleSwitch _overlayEnabled = null!;
@@ -78,6 +80,7 @@ public sealed class SettingsWindow : Form
     private ToggleSwitch _excludeCapture = null!;
 
     private ToggleSwitch _voiceEnabled = null!;
+    private ToggleSwitch _neuralOnly = null!;
     private DropDownField _voiceEngine = null!;
     private DropDownField _voiceName = null!;
     private SliderField _voiceRate = null!;
@@ -403,6 +406,8 @@ public sealed class SettingsWindow : Form
         };
 
         _earlyProbe = new ToggleSwitch();
+        _adaptiveContext = new ToggleSwitch();
+        _fastDecoding = new ToggleSwitch();
         _probeAfterMs = new SliderField { Minimum = 400, Maximum = 2000, Step = 50, Format = v => $"{v:0} мс" };
 
         return Stack(
@@ -425,7 +430,19 @@ public sealed class SettingsWindow : Form
                 _earlyProbe, 46),
             new SettingRow("Через сколько проверять",
                 "Меньше — загорается быстрее, но чаще мимо: имя может ещё не прозвучать.",
-                _probeAfterMs, 240));
+                _probeAfterMs, 240),
+            new SectionTitle("Скорость", "Здесь лежит почти всё ожидание перед выполнением команды."),
+            new SettingRow("Считать по длине фразы",
+                "Модель всегда работает окном в тридцать секунд: двухсекундную команду она дополняет " +
+                "тишиной и честно обрабатывает всё окно целиком. Почти вся работа уходит на эту тишину. " +
+                "Окно по длине фразы ускоряет распознавание в разы. Выключайте, только если появились " +
+                "странности на длинных фразах.",
+                _adaptiveContext, 46),
+            new SettingRow("Не переспрашивать себя",
+                "Не сойдясь с порогами уверенности, модель перезапускает расшифровку с другой " +
+                "температурой — до пяти раз подряд. Для расшифровки лекции это правильно, для команды " +
+                "из трёх слов означает пятикратное ожидание.",
+                _fastDecoding, 46));
     }
 
     private Control BuildGlowPage()
@@ -544,6 +561,7 @@ public sealed class SettingsWindow : Form
     private Control BuildVoicePage()
     {
         _voiceEnabled = new ToggleSwitch();
+        _neuralOnly = new ToggleSwitch();
         _speakFailures = new ToggleSwitch();
         _speakConfirmations = new ToggleSwitch();
         _suppressMic = new ToggleSwitch();
@@ -593,6 +611,10 @@ public sealed class SettingsWindow : Form
                 "так же хорошо и ничего никуда не отправляет. Нейроголоса Microsoft через интернет — " +
                 "лучшее звучание, но произносимый текст уходит на серверы Microsoft.",
                 _voiceEngine),
+            new SettingRow("Только нейроголос",
+                "Старые голоса Windows склеены из кусочков записи и звучат как компьютер из двухтысячных. " +
+                "Включено — не нашлось нейроголоса, промолчу. Молчание честнее: оно хотя бы не раздражает.",
+                _neuralOnly, 46),
             new SettingRow("Голос", "Список обновляется при открытии окна.", _voiceName),
             new SettingRow("Проверка", "", test, 210),
             new SettingRow("Нейроголоса в Windows",
@@ -974,6 +996,8 @@ public sealed class SettingsWindow : Form
         _language.Value = c.Speech.Language ?? "ru";
         _threads.Value = c.Speech.Threads;
         _earlyProbe.Checked = c.Speech.EarlyWakeProbe;
+        _adaptiveContext.Checked = c.Speech.AdaptiveContext;
+        _fastDecoding.Checked = c.Speech.FastDecoding;
         _probeAfterMs.Value = c.Speech.ProbeAfterMs;
 
         _overlayEnabled.Checked = c.Overlay.Enabled;
@@ -989,6 +1013,7 @@ public sealed class SettingsWindow : Form
 
         _voiceEnabled.Checked = c.Voice.Enabled;
         _voiceEngine.Value = c.Voice.Engine ?? "auto";
+        _neuralOnly.Checked = c.Voice.NeuralOnly;
         _voiceRate.Value = c.Voice.Rate;
         _voiceVolume.Value = c.Voice.Volume;
         _speakFailures.Checked = c.Voice.SpeakFailures;
@@ -1057,6 +1082,8 @@ public sealed class SettingsWindow : Form
         c.Speech.Language = _language.Value;
         c.Speech.Threads = (int)_threads.Value;
         c.Speech.EarlyWakeProbe = _earlyProbe.Checked;
+        c.Speech.AdaptiveContext = _adaptiveContext.Checked;
+        c.Speech.FastDecoding = _fastDecoding.Checked;
         c.Speech.ProbeAfterMs = (int)_probeAfterMs.Value;
 
         c.Overlay.Enabled = _overlayEnabled.Checked;
@@ -1072,6 +1099,7 @@ public sealed class SettingsWindow : Form
 
         c.Voice.Enabled = _voiceEnabled.Checked;
         c.Voice.Engine = _voiceEngine.Value;
+        c.Voice.NeuralOnly = _neuralOnly.Checked;
         c.Voice.Voice = _voiceName.Value;
         c.Voice.Rate = _voiceRate.Value;
         c.Voice.Volume = _voiceVolume.Value;
