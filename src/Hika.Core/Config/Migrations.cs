@@ -28,6 +28,7 @@ public static class Migrations
         var changes = new List<string>();
 
         if (config.Version < 2) ToVersion2(config, changes);
+        if (config.Version < 3) ToVersion3(config, changes);
 
         config.Version = HikaConfig.CurrentVersion;
 
@@ -56,6 +57,20 @@ public static class Migrations
 
         // Кайма была шире, чем требуется, чтобы обозначить себя.
         if (Same(c.Overlay.Thickness, 0.09)) Change(changes, "толщина каймы 0.09 -> 0.07", () => c.Overlay.Thickness = 0.07);
+    }
+
+    /// <summary>
+    /// Версия 3 — поиск в интернете только по просьбе.
+    ///
+    /// Прежнее поведение отправляло в поисковик всё, что не нашлось
+    /// в каталоге. Выглядело это так: человек говорит что-то рядом
+    /// с компьютером, а браузер открывает его же слова — и повторяется
+    /// это столько раз, сколько он говорит.
+    /// </summary>
+    private static void ToVersion3(HikaConfig c, List<string> changes)
+    {
+        if (c.Behavior.WebSearchFallback)
+            Change(changes, "поиск в интернете — только по просьбе", () => c.Behavior.WebSearchFallback = false);
     }
 
     private static void Change(List<string> changes, string description, Action apply)

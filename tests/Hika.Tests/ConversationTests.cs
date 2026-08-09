@@ -16,7 +16,6 @@ public class ConversationTests
     [Theory]
     [InlineData("расскажи анекдот")]
     [InlineData("объясни как работает вулкан")]
-    [InlineData("что такое квантовая запутанность")]
     [InlineData("почему небо голубое")]
     [InlineData("посоветуй фильм на вечер")]
     [InlineData("переведи слово серендипность")]
@@ -190,5 +189,81 @@ public class SpeechTextTests
 
         Assert.Equal(3, parts.Count);
         Assert.Contains("третье", parts[^1]);
+    }
+}
+
+/// <summary>
+/// Когда открывать браузер с поисковой выдачей.
+///
+/// Раньше туда уходило всё, что не нашлось в каталоге, — и выглядело это так:
+/// человек говорит что-то рядом с компьютером, а браузер открывает его же
+/// слова. Поиск должен случаться, когда о нём попросили, и никогда
+/// «на всякий случай».
+/// </summary>
+public class SearchIntentTests
+{
+    [Theory]
+    [InlineData("загугли рецепт борща")]
+    [InlineData("погугли погоду")]
+    [InlineData("найди отзывы на наушники")]
+    [InlineData("поищи расписание поездов")]
+    public void ГлаголПоискаОтправляетВПоисковик(string text)
+    {
+        var intent = CommandParser.Parse(text);
+        Assert.Equal(IntentKind.Search, intent.Kind);
+    }
+
+    [Theory]
+    [InlineData("что такое чёрная дыра")]
+    [InlineData("кто такой тьюринг")]
+    [InlineData("как приготовить борщ")]
+    [InlineData("как поменять пароль в windows")]
+    public void ОборотыПоискаТожеОтправляютВПоисковик(string text)
+    {
+        var intent = CommandParser.Parse(text);
+        Assert.Equal(IntentKind.Search, intent.Kind);
+
+        // Оборот остаётся в запросе: «что такое чёрная дыра» ищется лучше,
+        // чем обрубленное «чёрная дыра».
+        Assert.Contains(TextNormalizer.Tokenize(text)[0], intent.Argument);
+    }
+
+    [Theory]
+    // Всё остальное в поисковик уходить не должно ни при каких условиях.
+    [InlineData("открой стим")]
+    [InlineData("запусти халдайверс два")]
+    [InlineData("ютуб")]
+    [InlineData("расскажи анекдот")]
+    [InlineData("а я вчера ходил в магазин и там было закрыто")]
+    [InlineData("да нет наверное")]
+    public void ОстальноеВПоисковикНеУходит(string text)
+    {
+        Assert.NotEqual(IntentKind.Search, CommandParser.Parse(text).Kind);
+    }
+
+    [Theory]
+    // «Как дела» и «как приготовить борщ» начинаются одинаково,
+    // а хотят прямо противоположного.
+    [InlineData("как дела")]
+    [InlineData("как ты сегодня")]
+    [InlineData("как думаешь стоит ли")]
+    public void РазговорноеКакПоискомНеСчитается(string text)
+    {
+        Assert.NotEqual(IntentKind.Search, CommandParser.Parse(text).Kind);
+    }
+
+    [Fact]
+    public void ОдинокийОборотПоискомНеСчитается()
+    {
+        // «Как» и «что такое» без продолжения — это не запрос, а обрывок.
+        Assert.NotEqual(IntentKind.Search, CommandParser.Parse("как").Kind);
+        Assert.NotEqual(IntentKind.Search, CommandParser.Parse("что такое").Kind);
+    }
+
+    [Fact]
+    public void ПоискомВИнтернетеПоУмолчаниюНеЗатыкаютсяДыры()
+    {
+        // Значение по умолчанию — часть исправления, а не мелочь настроек.
+        Assert.False(new Hika.Config.BehaviorConfig().WebSearchFallback);
     }
 }

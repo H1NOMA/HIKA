@@ -74,6 +74,40 @@ public static class CommandParser
         "search", "google", "find", "lookup",
     };
 
+    /// <summary>
+    /// Начала фраз, после которых человек ждёт поисковую выдачу.
+    ///
+    /// В отличие от глаголов поиска, здесь фраза уходит в поисковик целиком,
+    /// вместе с самим оборотом: запрос «что такое чёрная дыра» ищется лучше,
+    /// чем обрубленный «чёрная дыра».
+    ///
+    /// Список нарочно короткий. Раньше в поиск уходило всё, что не нашлось
+    /// в каталоге, и выглядело это так: человек говорит что-то рядом
+    /// с компьютером, а браузер открывает его же слова. Поиск должен
+    /// случаться, когда о нём попросили, и никогда — «на всякий случай».
+    /// </summary>
+    private static readonly string[][] SearchOpeners =
+    {
+        new[] { "что", "такое" },
+        new[] { "кто", "такой" },
+        new[] { "кто", "такая" },
+        new[] { "как" },
+        new[] { "how", "to" },
+        new[] { "what", "is" },
+    };
+
+    /// <summary>
+    /// Что может стоять после «как», не будучи поисковым запросом.
+    ///
+    /// «Как дела» и «как приготовить борщ» начинаются одинаково, а хотят
+    /// от программы прямо противоположного.
+    /// </summary>
+    private static readonly HashSet<string> NotSearchAfterHow = new(StringComparer.Ordinal)
+    {
+        "дела", "ты", "жизнь", "настроение", "оно", "сам", "сама",
+        "думаешь", "считаешь", "поживаешь", "успехи", "здоровье",
+    };
+
     /// <summary>Слова-паразиты и вежливость: на смысл не влияют, сопоставлению мешают.</summary>
     private static readonly HashSet<string> Fillers = new(StringComparer.Ordinal)
     {
@@ -189,6 +223,12 @@ public static class CommandParser
         tokens = StripPolitePrefixes(tokens);
         if (tokens.Length == 0) return Intent.None;
 
+        // Обороты поиска проверяем до вычистки паразитов — «как» числится
+        // среди них, и без этой проверки «как приготовить борщ» потеряло бы
+        // ровно то слово, по которому опознаётся.
+        if (IsSearchOpener(tokens))
+            return new Intent(IntentKind.Search, string.Join(' ', tokens)) { ExplicitVerb = true };
+
         // Паразиты убираем следом, но если из фразы ничего не осталось —
         // возвращаем исходную: команда могла целиком состоять из таких слов.
         var cleaned = tokens.Where(t => !Fillers.Contains(t)).ToArray();
@@ -210,7 +250,7 @@ public static class CommandParser
             if (words.Length > 2 && words[0] is "в" or "на" or "in" or "on")
                 query = string.Join(' ', words[2..]);
 
-            return new Intent(IntentKind.Search, query.Trim());
+            return new Intent(IntentKind.Search, query.Trim()) { ExplicitVerb = true };
         }
 
         // Запуск: снимаем глагол, если он есть.
@@ -229,6 +269,26 @@ public static class CommandParser
         }
 
         return new Intent(IntentKind.Launch, string.Join(' ', target)) { ExplicitVerb = explicitVerb };
+    }
+
+    /// <summary>
+    /// Фраза начинается с оборота, после которого человек ждёт поиск.
+    /// </summary>
+    private static bool IsSearchOpener(string[] tokens)
+    {
+        foreach (var opener in SearchOpeners)
+        {
+            if (tokens.Length <= opener.Length) continue;   // одного оборота мало, нужен сам запрос
+            if (!StartsWith(tokens, opener)) continue;
+
+            // «Как дела» — это не запрос в поисковик, чем бы ни кончалась фраза.
+            if (opener.Length == 1 && opener[0] == "как" && NotSearchAfterHow.Contains(tokens[1]))
+                return false;
+
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -25,7 +25,7 @@ public sealed class HikaConfig
 
     /// <summary>Версия, которую понимает эта сборка.</summary>
     [JsonIgnore]
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     /// <summary>
     /// Кто сейчас откликается: hika или avi. Задаёт главное имя и цвет,
@@ -307,8 +307,20 @@ public sealed class BehaviorConfig
     /// </summary>
     public int ArmedSeconds { get; set; } = 6;
 
-    /// <summary>Если ничего не нашли — искать фразу в поисковике вместо того, чтобы промолчать.</summary>
-    public bool WebSearchFallback { get; set; } = true;
+    /// <summary>
+    /// Отправлять в поисковик всё, что не нашлось в каталоге.
+    ///
+    /// Выключено, и это исправление, а не осторожность. Задумывалось так:
+    /// молча проглотить команду хуже, чем показать результаты поиска —
+    /// человек хотя бы увидит, что его услышали. На деле вышло, что случайно
+    /// услышанная фраза открывает браузер с собственными словами человека,
+    /// и повторяется это ровно столько раз, сколько он говорит рядом
+    /// с компьютером.
+    ///
+    /// Поиск должен случаться, когда о нём попросили: «загугли», «найди»,
+    /// «что такое», «как». Эти обороты работают независимо от этой настройки.
+    /// </summary>
+    public bool WebSearchFallback { get; set; } = false;
 
     /// <summary>Шаблон поиска, {q} подставляется.</summary>
     public string SearchUrl { get; set; } = "https://www.google.com/search?q={q}";

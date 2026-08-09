@@ -150,6 +150,43 @@ public sealed class SettingsWindow : Form
         LoadFromConfig();
     }
 
+    /// <summary>
+    /// Что сломалось при сборке или загрузке. Пусто — всё в порядке.
+    ///
+    /// Окно настроек не имеет права не открыться: человек идёт сюда чинить
+    /// то, что уже не работает, и получить вместо этого «NullReferenceException»
+    /// — значит остаться совсем без выхода. Поэтому каждый раздел строится
+    /// и заполняется отдельно, а сорвавшийся называет себя и не тянет за собой
+    /// остальные.
+    /// </summary>
+    private readonly List<string> _failures = new();
+
+    /// <summary>Выполняет часть сборки, не давая ей уронить всё окно.</summary>
+    private void Section(string name, Action action)
+    {
+        try { action(); }
+        catch (Exception ex)
+        {
+            Log.Error($"раздел настроек «{name}» не собрался", ex, "ui");
+            _failures.Add(name);
+        }
+    }
+
+    private Control SafePage(string name, Func<Control> build)
+    {
+        try { return build(); }
+        catch (Exception ex)
+        {
+            Log.Error($"страница настроек «{name}» не собралась", ex, "ui");
+            _failures.Add(name);
+
+            return Stack(
+                new SectionTitle($"Раздел «{name}» не открылся",
+                    $"{ex.GetType().Name}: {ex.Message}\n\nОстальные разделы работают. " +
+                    "Подробности — в журнале, значок в трее → «Журнал работы»."));
+        }
+    }
+
     // ---- Каркас окна ------------------------------------------------------
 
     private void BuildWindow()
@@ -269,15 +306,15 @@ public sealed class SettingsWindow : Form
 
     private void BuildPages()
     {
-        _pages["persona"] = BuildPersonaPage();
-        _pages["mic"] = BuildMicrophonePage();
-        _pages["speech"] = BuildSpeechPage();
-        _pages["voice"] = BuildVoicePage();
-        _pages["brain"] = BuildBrainPage();
-        _pages["learning"] = BuildLearningPage();
-        _pages["glow"] = BuildGlowPage();
-        _pages["behavior"] = BuildBehaviorPage();
-        _pages["about"] = BuildAboutPage();
+        _pages["persona"] = SafePage("Личность", BuildPersonaPage);
+        _pages["mic"] = SafePage("Микрофон", BuildMicrophonePage);
+        _pages["speech"] = SafePage("Распознавание", BuildSpeechPage);
+        _pages["voice"] = SafePage("Голос", BuildVoicePage);
+        _pages["brain"] = SafePage("Разговор", BuildBrainPage);
+        _pages["learning"] = SafePage("Обучение", BuildLearningPage);
+        _pages["glow"] = SafePage("Свечение", BuildGlowPage);
+        _pages["behavior"] = SafePage("Поведение", BuildBehaviorPage);
+        _pages["about"] = SafePage("О программе", BuildAboutPage);
 
         foreach (var page in _pages.Values) _content.Controls.Add(page);
 
@@ -534,8 +571,10 @@ public sealed class SettingsWindow : Form
             new SettingRow("Уверенность при поиске программы",
                 "Запускает не то — поднимите. Не находит очевидное — опустите.",
                 _matchThreshold, 240),
-            new SettingRow("Искать в интернете, если команда не распознана",
-                "Молча проглотить команду хуже, чем показать результаты поиска: так хотя бы видно, что вас услышали.",
+            new SettingRow("Искать в интернете всё непонятое",
+                "Выключено, и лучше так и оставить. Задумывалось как вежливость — показать выдачу вместо молчания. " +
+                "На деле случайно услышанная фраза открывает браузер с вашими же словами, снова и снова. " +
+                "Поиск и без этого работает по просьбе: «загугли», «найди», «что такое», «как».",
                 _searchFallback, 46),
             new SettingRow("Знать про установленные программы",
                 "Обходит меню «Пуск» и список приложений Windows, чтобы открывать голосом всё, что у вас стоит.",
@@ -973,24 +1012,59 @@ public sealed class SettingsWindow : Form
     private void LoadFromConfig()
     {
         var c = _config;
+        _failures.Clear();
+
+        // Настройки могли быть написаны руками, а разделы — появиться позже
+        // самого файла. Досыпаем недостающее прямо здесь: окно не должно
+        // зависеть от того, успел ли кто-то раньше вызвать проверку.
+        c.Audio ??= new AudioConfig();
+        c.Speech ??= new SpeechConfig();
+        c.Wake ??= new WakeConfig();
+        c.Overlay ??= new OverlayConfig();
+        c.Behavior ??= new BehaviorConfig();
+        c.Voice ??= new VoiceConfig();
+        c.Brain ??= new BrainConfig();
+        c.Learning ??= new LearningConfig();
 
         _initialModel = c.Speech.Model ?? "";
         _initialDevice = c.Audio.Device ?? "";
         _initialRunAsAdmin = c.Behavior.RunAsAdmin;
 
+        Section("Личность", () => LoadPersona(c));
+        Section("Микрофон", () => LoadMicrophone(c));
+        Section("Распознавание", () => LoadSpeech(c));
+        Section("Свечение", () => LoadGlow(c));
+        Section("Голос", () => LoadVoice(c));
+        Section("Разговор", () => LoadBrain(c));
+        Section("Обучение", () => LoadLearning(c));
+        Section("Поведение", () => LoadBehavior(c));
+
+        SetNotice(_failures.Count == 0
+            ? ""
+            : $"Не открылись разделы: {string.Join(", ", _failures.Distinct())}. Подробности в журнале.");
+    }
+
+    private void LoadPersona(HikaConfig c)
+    {
         SelectPersona(Personas.ById(c.Persona).Id);
 
         _respondToBoth.Checked = c.Wake.RespondToBoth;
         _tolerance.Value = c.Wake.Tolerance;
         _allowAnywhere.Checked = c.Wake.AllowAnywhere;
         _extraVariants.Text = string.Join(", ", c.Wake.ExtraVariants ?? new List<string>());
+    }
 
+    private void LoadMicrophone(HikaConfig c)
+    {
         _device.Value = c.Audio.Device ?? "";
         _gain.Value = c.Audio.Gain;
         _vadThreshold.Value = c.Audio.VadThreshold;
         _silenceMs.Value = c.Audio.SilenceMs;
         _minSpeechMs.Value = c.Audio.MinSpeechMs;
+    }
 
+    private void LoadSpeech(HikaConfig c)
+    {
         _model.Value = c.Speech.Model ?? "small";
         _probeModel.Value = c.Speech.ProbeModel ?? "base";
         _language.Value = c.Speech.Language ?? "ru";
@@ -999,7 +1073,10 @@ public sealed class SettingsWindow : Form
         _adaptiveContext.Checked = c.Speech.AdaptiveContext;
         _fastDecoding.Checked = c.Speech.FastDecoding;
         _probeAfterMs.Value = c.Speech.ProbeAfterMs;
+    }
 
+    private void LoadGlow(HikaConfig c)
+    {
         _overlayEnabled.Checked = c.Overlay.Enabled;
         _monitors.Value = c.Overlay.Monitors ?? "primary";
         _thickness.Value = c.Overlay.Thickness;
@@ -1010,7 +1087,10 @@ public sealed class SettingsWindow : Form
         _fps.Value = c.Overlay.TargetFps;
         _personaColors.Checked = c.Overlay.UsePersonaColors;
         _excludeCapture.Checked = c.Overlay.ExcludeFromCapture;
+    }
 
+    private void LoadVoice(HikaConfig c)
+    {
         _voiceEnabled.Checked = c.Voice.Enabled;
         _voiceEngine.Value = c.Voice.Engine ?? "auto";
         _neuralOnly.Checked = c.Voice.NeuralOnly;
@@ -1021,7 +1101,10 @@ public sealed class SettingsWindow : Form
         _suppressMic.Checked = c.Voice.SuppressMicWhileSpeaking;
         RefreshVoices();
         RefreshVoiceStatus();
+    }
 
+    private void LoadBrain(HikaConfig c)
+    {
         _brainEnabled.Checked = c.Brain.Enabled;
         _brainModel.Value = c.Brain.Model ?? "claude-opus-5";
         _brainMaxTokens.Value = c.Brain.MaxTokens;
@@ -1031,7 +1114,10 @@ public sealed class SettingsWindow : Form
         _brainStyle.Text = c.Brain.Style ?? "";
         _apiKey.Text = Brain.ApiKeyStore.HasKey ? Brain.ApiKeyStore.Masked() : "";
         RefreshBrainStatus();
+    }
 
+    private void LoadLearning(HikaConfig c)
+    {
         _learningEnabled.Checked = c.Learning.Enabled;
         _keepJournal.Checked = c.Learning.KeepJournal;
         _maxPromptTerms.Value = c.Learning.MaxPromptTerms;
@@ -1039,7 +1125,10 @@ public sealed class SettingsWindow : Form
         _wakeVariantThreshold.Value = c.Learning.WakeVariantThreshold;
         _learnAliases.Checked = c.Learning.LearnAliases;
         RefreshLearningStatus();
+    }
 
+    private void LoadBehavior(HikaConfig c)
+    {
         _armedSeconds.Value = c.Behavior.ArmedSeconds;
         _searchFallback.Checked = c.Behavior.WebSearchFallback;
         _matchThreshold.Value = c.Behavior.MatchThreshold;
@@ -1049,90 +1138,24 @@ public sealed class SettingsWindow : Form
         _runAsAdmin.Checked = c.Behavior.RunAsAdmin;
         _startMuted.Checked = c.Behavior.StartMuted;
         _logLevel.Value = c.Behavior.LogLevel ?? "info";
-
-        SetNotice("");
     }
 
     private void Apply()
     {
         var c = _store.Current;
+        _failures.Clear();
 
-        c.Persona = _personaId;
-
-        c.Wake.RespondToBoth = _respondToBoth.Checked;
-        c.Wake.Tolerance = _tolerance.Value;
-        c.Wake.AllowAnywhere = _allowAnywhere.Checked;
-        c.Wake.ExtraVariants = _extraVariants.Text
-            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
-
-        // Список имён — производное от личности, поэтому переписываем его целиком.
-        // Один источник правды: иначе выбор личности и содержимое config.json
-        // начнут расходиться, и победит непонятно что.
-        c.Wake.Words = Personas.WakeWordsFor(_personaId, _respondToBoth.Checked);
-
-        c.Audio.Device = _device.Value;
-        c.Audio.Gain = (float)_gain.Value;
-        c.Audio.VadThreshold = (float)_vadThreshold.Value;
-        c.Audio.SilenceMs = (int)_silenceMs.Value;
-        c.Audio.MinSpeechMs = (int)_minSpeechMs.Value;
-
-        c.Speech.Model = _model.Value;
-        c.Speech.ProbeModel = _probeModel.Value;
-        c.Speech.Language = _language.Value;
-        c.Speech.Threads = (int)_threads.Value;
-        c.Speech.EarlyWakeProbe = _earlyProbe.Checked;
-        c.Speech.AdaptiveContext = _adaptiveContext.Checked;
-        c.Speech.FastDecoding = _fastDecoding.Checked;
-        c.Speech.ProbeAfterMs = (int)_probeAfterMs.Value;
-
-        c.Overlay.Enabled = _overlayEnabled.Checked;
-        c.Overlay.Monitors = _monitors.Value;
-        c.Overlay.Thickness = _thickness.Value;
-        c.Overlay.MaxOpacity = _maxOpacity.Value;
-        c.Overlay.ShowBeforeWakeWord = _showBeforeWake.Checked;
-        c.Overlay.SensingOpacity = _sensingOpacity.Value;
-        c.Overlay.VoiceReactivity = _reactivity.Value;
-        c.Overlay.TargetFps = (int)_fps.Value;
-        c.Overlay.UsePersonaColors = _personaColors.Checked;
-        c.Overlay.ExcludeFromCapture = _excludeCapture.Checked;
-
-        c.Voice.Enabled = _voiceEnabled.Checked;
-        c.Voice.Engine = _voiceEngine.Value;
-        c.Voice.NeuralOnly = _neuralOnly.Checked;
-        c.Voice.Voice = _voiceName.Value;
-        c.Voice.Rate = _voiceRate.Value;
-        c.Voice.Volume = _voiceVolume.Value;
-        c.Voice.SpeakFailures = _speakFailures.Checked;
-        c.Voice.SpeakConfirmations = _speakConfirmations.Checked;
-        c.Voice.SuppressMicWhileSpeaking = _suppressMic.Checked;
-
-        c.Brain.Enabled = _brainEnabled.Checked;
-        c.Brain.Model = _brainModel.Value;
-        c.Brain.MaxTokens = (int)_brainMaxTokens.Value;
-        c.Brain.FollowUpSeconds = (int)_followUpSeconds.Value;
-        c.Brain.AnswerUnknownCommands = _answerUnknown.Checked;
-        c.Brain.ShareProfile = _shareProfile.Checked;
-        c.Brain.Style = _brainStyle.Text.Trim();
-
-        c.Learning.Enabled = _learningEnabled.Checked;
-        c.Learning.KeepJournal = _keepJournal.Checked;
-        c.Learning.MaxPromptTerms = (int)_maxPromptTerms.Value;
-        c.Learning.LearnWakeVariants = _learnWakeVariants.Checked;
-        c.Learning.WakeVariantThreshold = (int)_wakeVariantThreshold.Value;
-        c.Learning.LearnAliases = _learnAliases.Checked;
-
-        c.Behavior.ArmedSeconds = (int)_armedSeconds.Value;
-        c.Behavior.WebSearchFallback = _searchFallback.Checked;
-        c.Behavior.MatchThreshold = _matchThreshold.Value;
-        c.Behavior.IndexInstalledApps = _indexApps.Checked;
-        c.Behavior.LogTranscripts = _logTranscripts.Checked;
-        c.Behavior.StartMuted = _startMuted.Checked;
-        c.Behavior.LogLevel = _logLevel.Value;
-        c.Behavior.Autostart = _autostart.Checked;
-        c.Behavior.RunAsAdmin = _runAsAdmin.Checked;
-
-        AutostartManager.Apply(_autostart.Checked, _runAsAdmin.Checked);
+        // Каждая группа отдельно: сорвавшаяся не должна утащить за собой
+        // сохранение остальных. Половина сохранённых настроек лучше, чем
+        // ни одной, и заметно лучше, чем окно, падающее по кнопке.
+        Section("Личность", () => ApplyPersonaAndWake(c));
+        Section("Микрофон", () => ApplyAudio(c));
+        Section("Распознавание", () => ApplySpeech(c));
+        Section("Свечение", () => ApplyOverlay(c));
+        Section("Голос", () => ApplyVoice(c));
+        Section("Разговор", () => ApplyBrain(c));
+        Section("Обучение", () => ApplyLearning(c));
+        Section("Поведение", () => ApplyBehavior(c));
 
         _store.Save();
         _config = c;
@@ -1146,13 +1169,116 @@ public sealed class SettingsWindow : Form
                            || _device.Value != _initialDevice
                            || _runAsAdmin.Checked != _initialRunAsAdmin;
 
-        SetNotice(needsRestart
-            ? "Сохранено. Модель, микрофон и права применятся после перезапуска HIKA."
-            : "Сохранено — всё уже работает.");
+        SetNotice(_failures.Count > 0
+            ? $"Сохранено не всё: сорвались разделы {string.Join(", ", _failures.Distinct())}."
+            : needsRestart
+                ? "Сохранено. Модель, микрофон и права применятся после перезапуска HIKA."
+                : "Сохранено — всё уже работает.");
 
         _initialModel = _model.Value;
         _initialDevice = _device.Value;
         _initialRunAsAdmin = _runAsAdmin.Checked;
+    }
+
+    private void ApplyPersonaAndWake(HikaConfig c)
+    {
+        c.Persona = _personaId;
+
+        c.Wake.RespondToBoth = _respondToBoth.Checked;
+        c.Wake.Tolerance = _tolerance.Value;
+        c.Wake.AllowAnywhere = _allowAnywhere.Checked;
+        c.Wake.ExtraVariants = _extraVariants.Text
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        // Список имён — производное от личности, поэтому переписываем его целиком.
+        // Один источник правды: иначе выбор личности и содержимое config.json
+        // начнут расходиться, и победит непонятно что.
+        c.Wake.Words = Personas.WakeWordsFor(_personaId, _respondToBoth.Checked);
+    }
+
+    private void ApplyAudio(HikaConfig c)
+    {
+        c.Audio.Device = _device.Value;
+        c.Audio.Gain = (float)_gain.Value;
+        c.Audio.VadThreshold = (float)_vadThreshold.Value;
+        c.Audio.SilenceMs = (int)_silenceMs.Value;
+        c.Audio.MinSpeechMs = (int)_minSpeechMs.Value;
+    }
+
+    private void ApplySpeech(HikaConfig c)
+    {
+        c.Speech.Model = _model.Value;
+        c.Speech.ProbeModel = _probeModel.Value;
+        c.Speech.Language = _language.Value;
+        c.Speech.Threads = (int)_threads.Value;
+        c.Speech.EarlyWakeProbe = _earlyProbe.Checked;
+        c.Speech.AdaptiveContext = _adaptiveContext.Checked;
+        c.Speech.FastDecoding = _fastDecoding.Checked;
+        c.Speech.ProbeAfterMs = (int)_probeAfterMs.Value;
+    }
+
+    private void ApplyOverlay(HikaConfig c)
+    {
+        c.Overlay.Enabled = _overlayEnabled.Checked;
+        c.Overlay.Monitors = _monitors.Value;
+        c.Overlay.Thickness = _thickness.Value;
+        c.Overlay.MaxOpacity = _maxOpacity.Value;
+        c.Overlay.ShowBeforeWakeWord = _showBeforeWake.Checked;
+        c.Overlay.SensingOpacity = _sensingOpacity.Value;
+        c.Overlay.VoiceReactivity = _reactivity.Value;
+        c.Overlay.TargetFps = (int)_fps.Value;
+        c.Overlay.UsePersonaColors = _personaColors.Checked;
+        c.Overlay.ExcludeFromCapture = _excludeCapture.Checked;
+    }
+
+    private void ApplyVoice(HikaConfig c)
+    {
+        c.Voice.Enabled = _voiceEnabled.Checked;
+        c.Voice.Engine = _voiceEngine.Value;
+        c.Voice.NeuralOnly = _neuralOnly.Checked;
+        c.Voice.Voice = _voiceName.Value;
+        c.Voice.Rate = _voiceRate.Value;
+        c.Voice.Volume = _voiceVolume.Value;
+        c.Voice.SpeakFailures = _speakFailures.Checked;
+        c.Voice.SpeakConfirmations = _speakConfirmations.Checked;
+        c.Voice.SuppressMicWhileSpeaking = _suppressMic.Checked;
+    }
+
+    private void ApplyBrain(HikaConfig c)
+    {
+        c.Brain.Enabled = _brainEnabled.Checked;
+        c.Brain.Model = _brainModel.Value;
+        c.Brain.MaxTokens = (int)_brainMaxTokens.Value;
+        c.Brain.FollowUpSeconds = (int)_followUpSeconds.Value;
+        c.Brain.AnswerUnknownCommands = _answerUnknown.Checked;
+        c.Brain.ShareProfile = _shareProfile.Checked;
+        c.Brain.Style = _brainStyle.Text.Trim();
+    }
+
+    private void ApplyLearning(HikaConfig c)
+    {
+        c.Learning.Enabled = _learningEnabled.Checked;
+        c.Learning.KeepJournal = _keepJournal.Checked;
+        c.Learning.MaxPromptTerms = (int)_maxPromptTerms.Value;
+        c.Learning.LearnWakeVariants = _learnWakeVariants.Checked;
+        c.Learning.WakeVariantThreshold = (int)_wakeVariantThreshold.Value;
+        c.Learning.LearnAliases = _learnAliases.Checked;
+    }
+
+    private void ApplyBehavior(HikaConfig c)
+    {
+        c.Behavior.ArmedSeconds = (int)_armedSeconds.Value;
+        c.Behavior.WebSearchFallback = _searchFallback.Checked;
+        c.Behavior.MatchThreshold = _matchThreshold.Value;
+        c.Behavior.IndexInstalledApps = _indexApps.Checked;
+        c.Behavior.LogTranscripts = _logTranscripts.Checked;
+        c.Behavior.StartMuted = _startMuted.Checked;
+        c.Behavior.LogLevel = _logLevel.Value;
+        c.Behavior.Autostart = _autostart.Checked;
+        c.Behavior.RunAsAdmin = _runAsAdmin.Checked;
+
+        AutostartManager.Apply(_autostart.Checked, _runAsAdmin.Checked);
     }
 
     private void SetNotice(string text)

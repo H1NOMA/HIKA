@@ -148,7 +148,7 @@ public class MigrationTests
 
             // И перенос обязан сохраниться на диск, иначе он повторится
             // при каждом запуске.
-            Assert.Contains("\"Version\": 2", File.ReadAllText(path));
+            Assert.Contains($"\"Version\": {HikaConfig.CurrentVersion}", File.ReadAllText(path));
         }
         finally
         {

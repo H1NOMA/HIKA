@@ -262,9 +262,15 @@ internal static class Program
                 // остаётся без единой зацепки — а зацепка вот она.
                 Log.Error("окно настроек не открылось", ex, "ui");
 
+                // Сообщение об ошибке без места, где она случилась, бесполезно
+                // одинаково для всех: человек не может ничего сделать,
+                // а по пересланному тексту нельзя даже начать искать. Поэтому
+                // первые кадры стека идут прямо в окно — их достаточно,
+                // чтобы попасть в нужную строку с первого раза.
                 MessageBox.Show(
                     $"Настройки не открылись.\n\n{ex.GetType().Name}: {ex.Message}\n\n" +
-                    $"Подробности: {AppPaths.LogDirectory}",
+                    $"{TopFrames(ex)}\n\n" +
+                    $"Полностью: {AppPaths.LogDirectory}",
                     "HIKA", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         };
@@ -403,6 +409,20 @@ internal static class Program
 
     private static string Capitalize(string s)
         => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
+    /// <summary>Первые кадры стека — ровно столько, чтобы понять, где сломалось.</summary>
+    private static string TopFrames(Exception ex, int count = 4)
+    {
+        var trace = (ex.InnerException ?? ex).StackTrace;
+        if (string.IsNullOrWhiteSpace(trace)) return "";
+
+        var lines = trace
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .Take(count);
+
+        return string.Join("\n", lines);
+    }
 
     private static int PrintHelp()
     {
