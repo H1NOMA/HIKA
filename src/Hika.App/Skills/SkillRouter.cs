@@ -12,11 +12,13 @@ public sealed class SkillRouter
 {
     private readonly AppCatalog _catalog;
     private readonly Timers _timers;
+    private readonly MusicSkill _music;
 
     public SkillRouter(AppCatalog catalog, Timers? timers = null)
     {
         _catalog = catalog;
         _timers = timers ?? new Timers();
+        _music = new MusicSkill(catalog);
     }
 
     public Timers Timers => _timers;
@@ -45,6 +47,7 @@ public sealed class SkillRouter
                 IntentKind.MediaNext => MediaSessions.Next(),
                 IntentKind.MediaPrevious => MediaSessions.Previous(),
                 IntentKind.NowPlaying => MediaSessions.NowPlaying(),
+                IntentKind.PlayMusic => _music.Play(behavior),
 
                 IntentKind.LockWorkstation => SystemActions.LockWorkstation(),
                 IntentKind.ShowDesktop => SystemActions.ShowDesktop(),

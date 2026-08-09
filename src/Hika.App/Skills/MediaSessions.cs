@@ -94,6 +94,18 @@ public static class MediaSessions
         return SkillResult.Ok(string.IsNullOrWhiteSpace(app) ? track : $"{track} — {app}");
     }
 
+    /// <summary>Что-нибудь сейчас звучит.</summary>
+    public static bool IsPlaying()
+        => Find(s => Status(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) is not null;
+
+    /// <summary>Есть приостановленный сеанс — значит, есть что продолжить.</summary>
+    public static bool HasPausedSession()
+        => Find(s => Status(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused) is not null;
+
+    /// <summary>Плеер объявился в системе — с ним уже можно разговаривать.</summary>
+    public static bool HasAnySession()
+        => Find(s => Status(s) != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed) is not null;
+
     // ---- Внутреннее ---------------------------------------------------------
 
     private static GlobalSystemMediaTransportControlsSessionManager? Manager()

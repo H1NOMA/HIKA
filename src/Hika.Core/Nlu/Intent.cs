@@ -31,6 +31,9 @@ public enum IntentKind
     /// <summary>Сказать, что играет.</summary>
     NowPlaying,
 
+    /// <summary>Включить музыку: продолжить приостановленное или поднять плеер.</summary>
+    PlayMusic,
+
     LockWorkstation,
     ShowDesktop,
     MinimizeWindow,

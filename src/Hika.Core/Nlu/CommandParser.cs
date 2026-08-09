@@ -291,6 +291,11 @@ public static class CommandParser
         var parametrized = MatchParametrized(cleaned);
         if (parametrized is not null) return parametrized;
 
+        // Шаблоны идут перед перечислением: они описывают команду устройством
+        // фразы и покрывают те сочетания, которые никто не выписывал.
+        var pattern = MatchPattern(cleaned);
+        if (pattern is not null) return pattern;
+
         var fixedMatch = MatchFixedCommand(cleaned);
         if (fixedMatch is not null) return fixedMatch;
 
@@ -383,6 +388,72 @@ public static class CommandParser
         }
         return true;
     }
+
+    /// <summary>
+    /// Команды, описанные устройством фразы, а не перечислением.
+    ///
+    /// Порядок важен: побеждает первый подошедший при равной оценке, поэтому
+    /// более определённые стоят раньше. «Следующий трек» должен разбираться
+    /// как переключение, а не как «включи трек».
+    ///
+    /// Пороги разные, и это не случайность. Ошибка на «следующей песне»
+    /// стоит одного лишнего нажатия, ошибка на «выключи звук» — тишины
+    /// посреди разговора, а перехваченный запуск программы раздражает
+    /// сильнее всего.
+    /// </summary>
+    private static readonly PhrasePattern[] Patterns =
+    {
+        // Следующий трек. «Следующая», «дальше», «переключи» — сами по себе.
+        PhrasePattern.Of(IntentKind.MediaNext, 0.80,
+            "?давай|включи|поставь|ставь|next",
+            "следующий|следующая|следующее|следующую|дальше|переключи|перемотай|next|skip",
+            "?трек|треки|песню|песня|песни|композицию|track|song"),
+
+        // Предыдущий трек.
+        PhrasePattern.Of(IntentKind.MediaPrevious, 0.80,
+            "?давай|включи|поставь|верни",
+            "предыдущий|предыдущая|предыдущую|прошлый|прошлую|назад|previous|prev|back",
+            "?трек|песню|песня|композицию|track|song"),
+
+        // Пауза. «Стоп», «хватит», «тихо» — односложные и самые ходовые.
+        PhrasePattern.Of(IntentKind.MediaPause, 0.84,
+            "?сделай|поставь|нажми|давай",
+            "пауза|паузу|стоп|останови|остановись|приостанови|хватит|тихо|замолчи|заткнись|pause|stop",
+            "?музыку|музыка|трек|песню|воспроизведение|играть|это"),
+
+        // Продолжить. Именно продолжить, а не начать заново.
+        //
+        // «Включи» сюда не входит намеренно, хотя и просится: «включи музыку»
+        // человек говорит, когда плеер закрыт, и продолжать там нечего.
+        // Это соседняя команда — поднять плеер и начать играть.
+        PhrasePattern.Of(IntentKind.MediaPlay, 0.84,
+            "?давай|ну",
+            "продолжи|продолжай|продолжить|возобнови|играй|отомри|resume|continue|unpause",
+            "?музыку|музыка|трек|песню|воспроизведение|играть|дальше"),
+
+        // Включить музыку вообще: поднять плеер и начать играть.
+        PhrasePattern.Of(IntentKind.PlayMusic, 0.80,
+            "?включи|поставь|запусти|врубай|вруби|давай|open|play|start",
+            "?мне|мою|моя|мой|любимую|последний|последнюю",
+            "музыку|музыка|музон|музычку|плейлист|плейлисты|треки|песни|playlist|music|tunes"),
+
+        // Что играет.
+        PhrasePattern.Of(IntentKind.NowPlaying, 0.84,
+            "?а|и",
+            "что|какая|какой|кто|which|what",
+            "?сейчас|это|там",
+            "играет|поёт|поет|звучит|трек|песня|играло|playing"),
+
+        // Громче и тише — с уточнением и без.
+        PhrasePattern.Of(IntentKind.VolumeUp, 0.84,
+            "?сделай|поставь|давай",
+            "громче|погромче|прибавь|увеличь|louder",
+            "?звук|громкость|музыку|немного"),
+        PhrasePattern.Of(IntentKind.VolumeDown, 0.84,
+            "?сделай|поставь|давай",
+            "тише|потише|убавь|уменьши|приглуши|quieter",
+            "?звук|громкость|музыку|немного"),
+    };
 
     /// <summary>Слова, по которым узнаётся разговор о громкости.</summary>
     private static readonly HashSet<string> VolumeWords = new(StringComparer.Ordinal)
@@ -514,6 +585,32 @@ public static class CommandParser
             return new[] { text };
 
         return parts.Count > 1 ? parts : new[] { text };
+    }
+
+    /// <summary>Ищет самый подходящий шаблон.</summary>
+    private static Intent? MatchPattern(string[] tokens)
+    {
+        var spoken = tokens.Select(Translit.Keys).ToArray();
+
+        IntentKind bestKind = IntentKind.None;
+        double bestScore = 0;
+
+        foreach (var pattern in Patterns)
+        {
+            var score = pattern.Match(spoken);
+            if (score < pattern.Threshold) continue;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestKind = pattern.Kind;
+            }
+        }
+
+        if (bestKind == IntentKind.None) return null;
+
+        Log.Debug($"шаблон: {bestKind} (оценка {bestScore:F2})", "nlu");
+        return new Intent(bestKind, "", bestScore);
     }
 
     private static Intent? MatchFixedCommand(string[] tokens)

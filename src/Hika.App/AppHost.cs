@@ -679,6 +679,16 @@ public sealed class AppHost : IDisposable
             command = result.Text;
             Log.Debug("имя не прозвучало, но мы ждали команду — принимаю", "host");
         }
+        else if (WithinFollowUp() && ContinuesWithoutName(result.Text) is { } followUp)
+        {
+            // Только что выполнили команду — и это её продолжение.
+            // Разговор с ассистентом редко состоит из одной фразы: за «поставь
+            // паузу» почти всегда идёт «а теперь громче». Требовать имя перед
+            // каждой значит заставлять человека обращаться к программе вместо
+            // того, чтобы ей пользоваться.
+            command = followUp;
+            Log.Info($"продолжение без имени: «{command}»", "host");
+        }
         else
         {
             // Обращались не к нам. Молча гаснем — но сначала проверяем,
@@ -791,6 +801,45 @@ public sealed class AppHost : IDisposable
             _voice.Say(outcome.Description);
 
         Finish(outcome.Success, stopwatch);
+    }
+
+    /// <summary>До какого момента следующая фраза считается продолжением уже начатого.</summary>
+    private DateTime _followUpUntil = DateTime.MinValue;
+
+    private bool WithinFollowUp() => DateTime.UtcNow <= _followUpUntil;
+
+    /// <summary>
+    /// Годится ли услышанное как продолжение без имени.
+    ///
+    /// Правило строже обычного, и это принципиально. Обычная команда защищена
+    /// именем: чтобы её выполнить, человек должен был обратиться. Здесь такой
+    /// защиты нет, значит, её должна заменить уверенность в самой команде.
+    ///
+    /// Поэтому проходят только две вещи: готовая команда — «дальше», «стоп»,
+    /// «громче», — и запуск программы, которая точно нашлась в каталоге.
+    /// Ни поиска, ни разговора, ни догадок: разговор рядом с компьютером
+    /// не должен превращаться в череду случайных действий.
+    /// </summary>
+    private string? ContinuesWithoutName(string text)
+    {
+        if (_router is null) return null;
+
+        var behavior = _configStore.Current.Behavior;
+        if (behavior.FollowUpSeconds <= 0) return null;
+
+        var intent = CommandParser.Parse(text);
+
+        if (intent.Kind is IntentKind.None or IntentKind.Search) return null;
+
+        if (intent.Kind is IntentKind.Launch or IntentKind.FocusWindow)
+        {
+            // Порог выше обычного: без имени цена ошибки — программа,
+            // открывшаяся посреди разговора ни с того ни с сего.
+            var threshold = Math.Max(0.78, behavior.MatchThreshold + 0.15);
+            if (_catalog.Resolve(intent.Argument, threshold) is null) return null;
+        }
+
+        return text;
     }
 
     /// <summary>
@@ -1093,6 +1142,14 @@ public sealed class AppHost : IDisposable
     private void Finish(bool success, Stopwatch stopwatch)
     {
         _overlay.SetState(success ? OverlayState.Success : OverlayState.Failed);
+
+        // Дальше слушаем молча. Ждать продолжения и одновременно светиться —
+        // разные вещи: горящая всё это время кайма превращает «слушаю»
+        // в постоянный фон, а именно от постоянного фона человек и просил
+        // избавить. Поэтому окно продолжения открыто, а свет гаснет.
+        var seconds = _configStore.Current.Behavior.FollowUpSeconds;
+        _followUpUntil = seconds > 0 ? DateTime.UtcNow.AddSeconds(seconds) : DateTime.MinValue;
+
         Disarm();
         SetState(HostState.Idle);
     }

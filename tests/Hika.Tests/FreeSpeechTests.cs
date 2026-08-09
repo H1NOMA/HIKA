@@ -177,3 +177,91 @@ public class FreeSpeechTests
         Assert.Single(CommandParser.Segments("а открой мне стим"));
     }
 }
+
+/// <summary>
+/// Конструктор фраз: команда описана устройством, а не перечислением.
+///
+/// Смысл проверок ниже — не в конкретных фразах, а в том, что работают
+/// и те сочетания, которых никто не выписывал. Заготовленный список
+/// такого не даёт по определению: шестую формулировку человек всё равно
+/// скажет мимо него.
+/// </summary>
+public class PhrasePatternTests
+{
+    [Theory]
+    // Ровно то, о чём просили: односложные, живые формы.
+    [InlineData("следующая", IntentKind.MediaNext)]
+    [InlineData("следующий", IntentKind.MediaNext)]
+    [InlineData("дальше", IntentKind.MediaNext)]
+    [InlineData("переключи", IntentKind.MediaNext)]
+    [InlineData("следующий трек", IntentKind.MediaNext)]
+    [InlineData("давай следующую песню", IntentKind.MediaNext)]
+
+    [InlineData("продолжай", IntentKind.MediaPlay)]
+    [InlineData("продолжи", IntentKind.MediaPlay)]
+    [InlineData("продолжай музыку", IntentKind.MediaPlay)]
+    [InlineData("возобнови воспроизведение", IntentKind.MediaPlay)]
+
+    [InlineData("стоп", IntentKind.MediaPause)]
+    [InlineData("хватит", IntentKind.MediaPause)]
+    [InlineData("поставь паузу", IntentKind.MediaPause)]
+    [InlineData("останови музыку", IntentKind.MediaPause)]
+
+    [InlineData("предыдущая", IntentKind.MediaPrevious)]
+    [InlineData("верни предыдущий трек", IntentKind.MediaPrevious)]
+
+    // Сочетания глагола и предмета, которые не выписаны нигде.
+    [InlineData("включи музыку", IntentKind.PlayMusic)]
+    [InlineData("врубай музон", IntentKind.PlayMusic)]
+    [InlineData("запусти мою музыку", IntentKind.PlayMusic)]
+    [InlineData("поставь мой плейлист", IntentKind.PlayMusic)]
+    [InlineData("давай любимую музыку", IntentKind.PlayMusic)]
+    [InlineData("музыку", IntentKind.PlayMusic)]
+
+    [InlineData("что играет", IntentKind.NowPlaying)]
+    [InlineData("какая песня", IntentKind.NowPlaying)]
+    [InlineData("а что сейчас играет", IntentKind.NowPlaying)]
+
+    [InlineData("погромче", IntentKind.VolumeUp)]
+    [InlineData("прибавь звук", IntentKind.VolumeUp)]
+    [InlineData("сделай потише", IntentKind.VolumeDown)]
+    [InlineData("приглуши музыку", IntentKind.VolumeDown)]
+    public void СочетанияРаботаютБезПеречисления(string text, IntentKind expected)
+    {
+        Assert.Equal(expected, CommandParser.Parse(text).Kind);
+    }
+
+    [Theory]
+    // Лишнее слово означает другую команду. Иначе «включи музыку в стиме»
+    // включало бы музыку вместо того, чтобы открыть Steam.
+    [InlineData("включи музыку в стиме")]
+    [InlineData("открой стим")]
+    [InlineData("запусти халдайверс два")]
+    [InlineData("включи телеграм")]
+    [InlineData("поставь фотошоп")]
+    public void ЗапускПрограммыШаблонамиНеПерехватывается(string text)
+    {
+        var kind = CommandParser.Parse(text).Kind;
+
+        Assert.True(kind is IntentKind.Launch or IntentKind.None,
+            $"«{text}» разобралось как {kind}, а должно было остаться запуском");
+    }
+
+    [Fact]
+    public void ДальшеЭтоСледующийТрекАНеПродолжение()
+    {
+        // Человек сказал прямо: «дальше» — это следующая песня.
+        // Слово встречается и в описании продолжения, и разводить их
+        // приходится порядком, а не порогами.
+        Assert.Equal(IntentKind.MediaNext, CommandParser.Parse("дальше").Kind);
+    }
+
+    [Fact]
+    public void НеобязательныйСлотНеОтбираетСловоУОбязательного()
+    {
+        // «Включи следующий» — «включи» подходит и необязательному слоту
+        // переключения, и обязательному слоту продолжения. Жадный разбор
+        // отдал бы слово первому и потерял команду.
+        Assert.Equal(IntentKind.MediaNext, CommandParser.Parse("включи следующий").Kind);
+    }
+}

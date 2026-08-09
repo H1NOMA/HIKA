@@ -109,6 +109,8 @@ public sealed class SettingsWindow : Form
     private Label _learningStatus = null!;
 
     private SliderField _armedSeconds = null!;
+    private SliderField _commandFollowUp = null!;
+    private TextField _musicApp = null!;
     private ToggleSwitch _searchFallback = null!;
     private SliderField _matchThreshold = null!;
     private ToggleSwitch _indexApps = null!;
@@ -546,6 +548,8 @@ public sealed class SettingsWindow : Form
     private Control BuildBehaviorPage()
     {
         _armedSeconds = new SliderField { Minimum = 0, Maximum = 20, Step = 1, Format = v => v < 1 ? "выкл." : $"{v:0} с" };
+        _commandFollowUp = new SliderField { Minimum = 0, Maximum = 30, Step = 1, Format = v => v < 1 ? "выкл." : $"{v:0} с" };
+        _musicApp = new TextField { Placeholder = "пусто — выбрать самой" };
         _searchFallback = new ToggleSwitch();
         _matchThreshold = new SliderField { Minimum = 0.4, Maximum = 0.9, Step = 0.01, Format = v => v.ToString("0.00") };
         _indexApps = new ToggleSwitch();
@@ -568,6 +572,15 @@ public sealed class SettingsWindow : Form
             new SettingRow("Ждать команду после имени",
                 "Позволяет сказать «Ави», сделать паузу и договорить. Ноль — имя и команда должны быть одной фразой.",
                 _armedSeconds, 240),
+            new SettingRow("Слушать продолжение без имени",
+                "После выполненной команды можно сразу сказать следующую, не называя имени: за «поставь паузу» " +
+                "почти всегда идёт «а теперь громче». Свечение при этом гаснет — гореть всё это время оно не должно. " +
+                "Проходят только уверенно узнанные команды: ни поиска, ни разговора, ни догадок.",
+                _commandFollowUp, 240),
+            new SettingRow("Чем включать музыку",
+                "Для команды «включи музыку». Пусто — выберу сама из установленного: Apple Music, Spotify, " +
+                "Яндекс Музыка и далее по списку.",
+                _musicApp),
             new SettingRow("Уверенность при поиске программы",
                 "Запускает не то — поднимите. Не находит очевидное — опустите.",
                 _matchThreshold, 240),
@@ -1130,6 +1143,8 @@ public sealed class SettingsWindow : Form
     private void LoadBehavior(HikaConfig c)
     {
         _armedSeconds.Value = c.Behavior.ArmedSeconds;
+        _commandFollowUp.Value = c.Behavior.FollowUpSeconds;
+        _musicApp.Text = c.Behavior.MusicApp ?? "";
         _searchFallback.Checked = c.Behavior.WebSearchFallback;
         _matchThreshold.Value = c.Behavior.MatchThreshold;
         _indexApps.Checked = c.Behavior.IndexInstalledApps;
@@ -1269,6 +1284,8 @@ public sealed class SettingsWindow : Form
     private void ApplyBehavior(HikaConfig c)
     {
         c.Behavior.ArmedSeconds = (int)_armedSeconds.Value;
+        c.Behavior.FollowUpSeconds = (int)_commandFollowUp.Value;
+        c.Behavior.MusicApp = _musicApp.Text.Trim();
         c.Behavior.WebSearchFallback = _searchFallback.Checked;
         c.Behavior.MatchThreshold = _matchThreshold.Value;
         c.Behavior.IndexInstalledApps = _indexApps.Checked;
