@@ -94,6 +94,42 @@ public static class MediaSessions
         return SkillResult.Ok(string.IsNullOrWhiteSpace(app) ? track : $"{track} — {app}");
     }
 
+    /// <summary>
+    /// Как называется тот, кто сейчас играет, — чтобы найти его окно.
+    ///
+    /// Пустая строка означает, что не играет никто. Приостановленный сеанс
+    /// тоже считается: человек, сказавший «перемотай», почти наверняка имеет
+    /// в виду то видео, которое только что поставил на паузу.
+    /// </summary>
+    public static string PlayingAppHint()
+    {
+        var session = Find(s => Status(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                   ?? Find(s => Status(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                   ?? Active();
+
+        if (session is null) return "";
+
+        var name = AppName(session);
+        if (name.Length > 0) return name;
+
+        // Имя не узналось — берём начало идентификатора: для обычных программ
+        // это и есть имя процесса, а больше нам ничего и не нужно.
+        try
+        {
+            var id = session.SourceAppUserModelId ?? "";
+            if (id.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) id = id[..^4];
+
+            var bang = id.IndexOf('!');
+            if (bang > 0) id = id[..bang];
+
+            return id.Trim();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     /// <summary>Что-нибудь сейчас звучит.</summary>
     public static bool IsPlaying()
         => Find(s => Status(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) is not null;

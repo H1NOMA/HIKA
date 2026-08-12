@@ -118,6 +118,8 @@ public sealed class SettingsWindow : Form
     private ToggleSwitch _autostart = null!;
     private ToggleSwitch _runAsAdmin = null!;
     private ToggleSwitch _startMuted = null!;
+    private HotkeyField _listenHotkey = null!;
+    private HotkeyField _muteHotkey = null!;
     private DropDownField _logLevel = null!;
 
     private string _initialModel = "";
@@ -557,6 +559,8 @@ public sealed class SettingsWindow : Form
         _autostart = new ToggleSwitch();
         _runAsAdmin = new ToggleSwitch();
         _startMuted = new ToggleSwitch();
+        _listenHotkey = new HotkeyField();
+        _muteHotkey = new HotkeyField();
 
         _logLevel = new DropDownField();
         _logLevel.SetItems(new[]
@@ -592,6 +596,16 @@ public sealed class SettingsWindow : Form
             new SettingRow("Знать про установленные программы",
                 "Обходит меню «Пуск» и список приложений Windows, чтобы открывать голосом всё, что у вас стоит.",
                 _indexApps, 46),
+            new SectionTitle("Горячие клавиши",
+                "Нажмите на поле и нажмите сочетание. Escape — оставить как было, Backspace — снять."),
+            new SettingRow("Слушать по нажатию",
+                "Одно нажатие — слушаю команду без имени; выполнила и снова сплю. Нужно, когда говорить " +
+                "имя вслух неудобно: рядом спят, идёт запись, в наушниках созвон. Нажать ещё раз, " +
+                "пока слушаю, — отбой.",
+                _listenHotkey),
+            new SettingRow("Выключить микрофон",
+                "То же, что «Микрофон выключен» в меню значка.",
+                _muteHotkey),
             new SectionTitle("Запуск"),
             new SettingRow("Запускать вместе с Windows", "", _autostart, 46),
             new SettingRow("Стартовать с выключенным микрофоном", "", _startMuted, 46),
@@ -1152,6 +1166,8 @@ public sealed class SettingsWindow : Form
         _autostart.Checked = AutostartManager.IsAnyEnabled();
         _runAsAdmin.Checked = c.Behavior.RunAsAdmin;
         _startMuted.Checked = c.Behavior.StartMuted;
+        _listenHotkey.Combination = c.Behavior.ListenHotkey ?? "";
+        _muteHotkey.Combination = c.Behavior.MuteHotkey ?? "";
         _logLevel.Value = c.Behavior.LogLevel ?? "info";
     }
 
@@ -1291,6 +1307,8 @@ public sealed class SettingsWindow : Form
         c.Behavior.IndexInstalledApps = _indexApps.Checked;
         c.Behavior.LogTranscripts = _logTranscripts.Checked;
         c.Behavior.StartMuted = _startMuted.Checked;
+        c.Behavior.ListenHotkey = _listenHotkey.Combination;
+        c.Behavior.MuteHotkey = _muteHotkey.Combination;
         c.Behavior.LogLevel = _logLevel.Value;
         c.Behavior.Autostart = _autostart.Checked;
         c.Behavior.RunAsAdmin = _runAsAdmin.Checked;

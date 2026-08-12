@@ -371,6 +371,167 @@ public sealed class TextField : Control
     }
 }
 
+// ---- Поле для сочетания клавиш --------------------------------------------
+
+/// <summary>
+/// Сочетание клавиш задаётся нажатием, а не набором текста.
+///
+/// Написать «Ctrl+Alt+Пробел» руками человек, конечно, может — и ошибётся
+/// в названии клавиши, и не узнает об этом до того момента, когда нажатие
+/// не сработает. Нажать то, что хочешь назначить, короче и не оставляет
+/// места для ошибки.
+/// </summary>
+public sealed class HotkeyField : Control
+{
+    private bool _capturing;
+    private bool _hover;
+    private string _combination = "";
+
+    public event EventHandler? CombinationChanged;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string Combination
+    {
+        get => _combination;
+        set
+        {
+            var text = value?.Trim() ?? "";
+            if (_combination == text) return;
+
+            _combination = text;
+            Invalidate();
+            CombinationChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public HotkeyField()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor
+                 | ControlStyles.Selectable, true);
+
+        TabStop = true;
+        Size = new Size(260, 34);
+        Cursor = Cursors.Hand;
+        BackColor = Color.Transparent;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
+
+    protected override void OnClick(EventArgs e)
+    {
+        Focus();
+        _capturing = true;
+        Invalidate();
+        base.OnClick(e);
+    }
+
+    protected override void OnLostFocus(EventArgs e)
+    {
+        _capturing = false;
+        Invalidate();
+        base.OnLostFocus(e);
+    }
+
+    /// <summary>
+    /// Клавиши перехватываются здесь, а не в KeyDown, потому что часть из них
+    /// до KeyDown не доходит вовсе: Alt, Tab и Escape окно разбирает само,
+    /// а назначить их человек вправе.
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (!_capturing) return base.ProcessCmdKey(ref msg, keyData);
+
+        var key = keyData & Keys.KeyCode;
+
+        // Один модификатор — ещё не сочетание, ждём основную клавишу.
+        if (key is Keys.ControlKey or Keys.ShiftKey or Keys.Menu
+                or Keys.LWin or Keys.RWin or Keys.None) return true;
+
+        if (key == Keys.Escape)
+        {
+            _capturing = false;
+            Invalidate();
+            return true;
+        }
+
+        if (key is Keys.Back or Keys.Delete)
+        {
+            _capturing = false;
+            Combination = "";
+            Invalidate();
+            return true;
+        }
+
+        var text = Describe(keyData);
+        if (text is null)
+        {
+            // Голая буква в глобальные не годится: назначить её значит отнять
+            // у всей системы. Показываем, что не приняли, и ждём дальше.
+            System.Media.SystemSounds.Beep.Play();
+            return true;
+        }
+
+        _capturing = false;
+        Combination = text;
+        Invalidate();
+        return true;
+    }
+
+    /// <summary>Собирает запись сочетания. Null — такое назначать нельзя.</summary>
+    private static string? Describe(Keys keyData)
+    {
+        var parts = new List<string>(4);
+
+        if ((keyData & Keys.Control) != 0) parts.Add("Ctrl");
+        if ((keyData & Keys.Alt) != 0) parts.Add("Alt");
+        if ((keyData & Keys.Shift) != 0) parts.Add("Shift");
+
+        parts.Add(KeyName(keyData & Keys.KeyCode));
+
+        var text = string.Join("+", parts);
+
+        // Проверяем тем же разбором, каким её потом будет назначать система:
+        // если он этого не понимает, показывать человеку такое сочетание
+        // нельзя — оно всё равно не сработает.
+        return Hotkey.IsValid(text) ? text : null;
+    }
+
+    private static string KeyName(Keys key) => key switch
+    {
+        >= Keys.D0 and <= Keys.D9 => ((char)('0' + (key - Keys.D0))).ToString(),
+        Keys.Return => "Enter",
+        Keys.Back => "Backspace",
+        Keys.Prior => "PageUp",
+        Keys.Next => "PageDown",
+        Keys.Oemtilde => "Tilde",
+        Keys.Oemplus => "Plus",
+        Keys.OemMinus => "Minus",
+        _ => key.ToString(),
+    };
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        var box = new Rectangle(0, 0, Width - 1, Height - 1);
+        Theme.FillRounded(g, box, 8, _hover || _capturing ? Theme.CardHover : Theme.Card);
+        Theme.DrawRounded(g, box, 8, _capturing || _hover ? Theme.Accent : Theme.Border);
+
+        var (text, color) = _capturing
+            ? ("Нажмите сочетание…", Theme.Accent)
+            : _combination.Length > 0
+                ? (_combination, Theme.Text)
+                : ("не назначено", Theme.TextFaint);
+
+        TextRenderer.DrawText(g, text, Theme.Body,
+            new Rectangle(12, 0, Width - 24, Height), color,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+    }
+}
+
 // ---- Кнопка ---------------------------------------------------------------
 
 public sealed class FlatButton : Control

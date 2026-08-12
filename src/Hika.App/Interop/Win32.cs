@@ -128,6 +128,7 @@ internal static class Win32
     internal const ushort VK_E = 0x45;
     internal const ushort VK_F = 0x46;
     internal const ushort VK_I = 0x49;
+    internal const ushort VK_M = 0x4D;
     internal const ushort VK_N = 0x4E;
     internal const ushort VK_P = 0x50;
     internal const ushort VK_R = 0x52;
@@ -148,8 +149,24 @@ internal static class Win32
     internal const ushort VK_F4 = 0x73;
     internal const ushort VK_F11 = 0x7A;
     internal const ushort VK_OEM_PERIOD = 0xBE;
+    internal const ushort VK_OEM_COMMA = 0xBC;
     internal const ushort VK_OEM_PLUS = 0xBB;
     internal const ushort VK_OEM_MINUS = 0xBD;
+
+    // ---- Глобальные горячие клавиши --------------------------------------
+
+    internal const int WM_HOTKEY = 0x0312;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool RegisterHotKey(IntPtr hWnd, int id, uint modifiers, uint virtualKey);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    /// <summary>Сочетание уже занято другой программой.</summary>
+    internal const int ERROR_HOTKEY_ALREADY_REGISTERED = 1409;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct KEYBDINPUT

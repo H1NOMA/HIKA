@@ -1009,6 +1009,10 @@ public sealed class AppHost : IDisposable
 
         var seconds = Math.Max(1, _configStore.Current.Brain.FollowUpSeconds);
 
+        // Разговор живёт по своим правилам: даже начатый нажатием клавиши,
+        // дальше он продолжается репликами, а не нажатиями.
+        _armedByHotkey = false;
+
         _armedUntil = DateTime.UtcNow.AddSeconds(seconds);
         _conversationUntil = _armedUntil;
 
@@ -1110,17 +1114,29 @@ public sealed class AppHost : IDisposable
         StartupProblem?.Invoke(message);
     }
 
+    /// <summary>
+    /// Та же настройка, но без ухода в поисковик.
+    ///
+    /// Копируется целиком, поле в поле. Соблазн перечислить только нужное
+    /// велик и обманчив: забытое поле здесь не ломается заметно, оно молча
+    /// возвращается к значению по умолчанию — и «почему-то иногда музыка
+    /// включается не тем плеером» ищется потом полдня.
+    /// </summary>
     private static BehaviorConfig ShallowCopyWithoutSearchFallback(BehaviorConfig source) => new()
     {
         ArmedSeconds = source.ArmedSeconds,
         WebSearchFallback = false,
         SearchUrl = source.SearchUrl,
+        MusicApp = source.MusicApp,
+        FollowUpSeconds = source.FollowUpSeconds,
         MatchThreshold = source.MatchThreshold,
         IndexInstalledApps = source.IndexInstalledApps,
         ReindexMinutes = source.ReindexMinutes,
         LogTranscripts = source.LogTranscripts,
         Autostart = source.Autostart,
+        RunAsAdmin = source.RunAsAdmin,
         StartMuted = source.StartMuted,
+        ListenHotkey = source.ListenHotkey,
         MuteHotkey = source.MuteHotkey,
         LogLevel = source.LogLevel,
     };
@@ -1147,7 +1163,11 @@ public sealed class AppHost : IDisposable
         // разные вещи: горящая всё это время кайма превращает «слушаю»
         // в постоянный фон, а именно от постоянного фона человек и просил
         // избавить. Поэтому окно продолжения открыто, а свет гаснет.
-        var seconds = _configStore.Current.Behavior.FollowUpSeconds;
+        //
+        // Кроме одного случая: если слушать попросили клавишей, окна
+        // продолжения нет вовсе. Нажатие — это одна просьба целиком:
+        // нажал, сказал, выполнилось, уснула.
+        var seconds = _armedByHotkey ? 0 : _configStore.Current.Behavior.FollowUpSeconds;
         _followUpUntil = seconds > 0 ? DateTime.UtcNow.AddSeconds(seconds) : DateTime.MinValue;
 
         Disarm();
@@ -1164,6 +1184,8 @@ public sealed class AppHost : IDisposable
     private void Disarm()
     {
         _armedUntil = DateTime.MinValue;
+        _armedByHotkey = false;
+
         if (State == HostState.Armed)
         {
             SetState(HostState.Idle);
@@ -1190,6 +1212,58 @@ public sealed class AppHost : IDisposable
 
     /// <summary>Прогоняет свечение по всем состояниям — проверка без микрофона.</summary>
     public void TestOverlay() => _ = Task.Run(() => _overlay.RunSelfTestAsync(_shutdown.Token));
+
+    /// <summary>
+    /// Слушать по нажатию клавиши, без имени.
+    ///
+    /// Одно нажатие — она слушает; выполнила команду — снова спит. Именно
+    /// поэтому окно продолжения после такой команды не открывается: нажатие
+    /// означает одну просьбу, а не начало разговора. Захочется второй —
+    /// нажмите ещё раз, это тот же жест.
+    ///
+    /// Второе нажатие, пока она слушает, — отбой. Нажать случайно легче,
+    /// чем кажется, и оставлять программу ждать команду ни к чему.
+    /// </summary>
+    public void BeginListening()
+    {
+        if (_microphone.Muted)
+        {
+            // Красная вспышка вместо тишины: нажатие, на которое ничего
+            // не произошло, читается как сломанная программа, а не как
+            // выключенный микрофон.
+            Log.Warn("нажата клавиша «слушай», но микрофон выключен", "host");
+            _overlay.SetState(OverlayState.Failed);
+            return;
+        }
+
+        if (State == HostState.Armed)
+        {
+            Log.Info("отбой по клавише", "host");
+            Disarm();
+            return;
+        }
+
+        if (State == HostState.Working)
+        {
+            Log.Debug("клавиша «слушай» нажата во время работы — пропускаю", "host");
+            return;
+        }
+
+        Log.Info("слушаю по клавише", "host");
+
+        // Всё, что успело накопиться до нажатия, к делу не относится:
+        // человек нажал именно потому, что собирается говорить сейчас.
+        _segmenter?.Reset();
+        _levelMeter.Reset();
+
+        if (_voice.IsSpeaking) _voice.Hush();
+
+        _armedByHotkey = true;
+        Arm();
+    }
+
+    /// <summary>Команду ждём по нажатию клавиши, а не потому, что прозвучало имя.</summary>
+    private bool _armedByHotkey;
 
     public void ToggleMute()
     {

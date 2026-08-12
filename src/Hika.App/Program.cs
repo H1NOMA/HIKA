@@ -221,6 +221,24 @@ internal static class Program
         using var host = new AppHost(store);
         using var tray = new TrayIcon(config.Persona);
 
+        // Горячие клавиши поднимаем здесь, а не внутри хоста: они должны
+        // работать всё время, пока программа запущена, и переживать
+        // и перенастройку, и закрытое окно настроек.
+        using var hotkeys = new Interop.HotkeyListener();
+
+        hotkeys.ListenPressed += host.BeginListening;
+        hotkeys.MutePressed += () =>
+        {
+            host.ToggleMute();
+            tray.UpdateState(host.State, host.Muted);
+        };
+
+        // Молчаливо не назначившаяся клавиша — худший из исходов: человек
+        // жмёт, ничего не происходит, и понять почему нельзя.
+        hotkeys.Problem += message => tray.ShowMessage("HIKA", message, ToolTipIcon.Warning);
+
+        hotkeys.Rebind(config.Behavior.ListenHotkey, config.Behavior.MuteHotkey);
+
         // Окно создаётся один раз и дальше только прячется: пересоздавать его
         // на каждое открытие — терять и позицию, и выбранный раздел.
         SettingsWindow? settings = null;
@@ -240,6 +258,7 @@ internal static class Program
                     onApply: updated =>
                     {
                         host.ApplyConfig(updated);
+                        hotkeys.Rebind(updated.Behavior.ListenHotkey, updated.Behavior.MuteHotkey);
                         tray.SetPersona(updated.Persona);
                         tray.UpdateState(host.State, host.Muted);
                     },
@@ -301,6 +320,7 @@ internal static class Program
         {
             Log.MinimumLevel = ParseLevel(updated.Behavior.LogLevel);
             host.ApplyConfig(updated);
+            hotkeys.Rebind(updated.Behavior.ListenHotkey, updated.Behavior.MuteHotkey);
         };
 
         store.StartWatching();

@@ -112,6 +112,49 @@ public enum IntentKind
     /// <summary>Включить музыку: продолжить приостановленное или поднять плеер.</summary>
     PlayMusic,
 
+    // ---- Видео: ютуб и любой плеер -----------------------------------------
+    //
+    // Всё здесь делается клавишами, которые плеер разбирает сам. Список сеансов
+    // Windows про перемотку, субтитры и скорость не знает вовсе — он умеет
+    // только «играй», «стой», «дальше», — а именно этих трёх команд человеку
+    // и не хватает, когда он смотрит видео.
+
+    /// <summary>Перемотать немного вперёд.</summary>
+    MediaSeekForward,
+
+    /// <summary>Перемотать немного назад.</summary>
+    MediaSeekBackward,
+
+    /// <summary>Перемотать заметно вперёд — «на минуту», «подальше».</summary>
+    MediaSeekForwardFar,
+
+    /// <summary>Перемотать заметно назад.</summary>
+    MediaSeekBackwardFar,
+
+    /// <summary>В начало: «сначала», «заново».</summary>
+    MediaRestart,
+
+    /// <summary>Видео на весь экран.</summary>
+    MediaFullScreen,
+
+    /// <summary>Широкий (театральный) режим ютуба.</summary>
+    MediaTheater,
+
+    /// <summary>Мини-плеер в углу.</summary>
+    MediaMiniPlayer,
+
+    /// <summary>Субтитры.</summary>
+    MediaCaptions,
+
+    MediaSpeedUp,
+    MediaSpeedDown,
+
+    /// <summary>Заглушить сам плеер, не трогая громкость системы.</summary>
+    MediaMute,
+
+    NextVideo,
+    PreviousVideo,
+
     // ---- Система -----------------------------------------------------------
 
     LockWorkstation,

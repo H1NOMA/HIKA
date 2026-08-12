@@ -490,6 +490,13 @@ public static class CommandParser
         "громкость", "громкости", "громкостью", "звук", "звука", "volume",
     };
 
+    /// <summary>Глаголы перемотки. Нужны там, где внутри фразы стоит число.</summary>
+    private static readonly HashSet<string> SeekVerbs = new(StringComparer.Ordinal)
+    {
+        "перемотай", "перемотать", "промотай", "промотать",
+        "отмотай", "отмотать", "отматывай", "мотай", "пролистай",
+    };
+
     /// <summary>Слова, по которым узнаётся просьба напомнить через время.</summary>
     private static readonly HashSet<string> TimerWords = new(StringComparer.Ordinal)
     {
@@ -560,6 +567,32 @@ public static class CommandParser
             {
                 Log.Debug($"громкость на {value}", "nlu");
                 return new Intent(IntentKind.VolumeSet, value.Value.ToString());
+            }
+        }
+
+        // Перемотка с числом: «перемотай на тридцать секунд назад».
+        //
+        // Шаблонам такое не даётся: у них слоты под слова, а здесь внутри
+        // фразы стоит число, которое словом не перечислить. Точной перемотки
+        // на заданное число секунд не бывает ни у одного плеера — единой
+        // клавиши для этого нет, — поэтому число решает только одно: близко
+        // или далеко. Человек, называющий секунды, и не ждёт секундомера.
+        if (tokens.Any(SeekVerbs.Contains))
+        {
+            var jump = Numbers.Duration(tokens);
+            if (jump is { TotalSeconds: >= 1 })
+            {
+                var back = tokens.Any(t => t is "назад" or "обратно")
+                        || (tokens.Any(t => t is "отмотай" or "отмотать" or "отматывай")
+                            && !tokens.Any(t => t is "вперёд" or "вперед"));
+
+                var far = jump.Value.TotalSeconds >= 20;
+
+                Log.Debug($"перемотка на {jump.Value.TotalSeconds:F0} с {(back ? "назад" : "вперёд")}", "nlu");
+
+                return new Intent(back
+                    ? far ? IntentKind.MediaSeekBackwardFar : IntentKind.MediaSeekBackward
+                    : far ? IntentKind.MediaSeekForwardFar : IntentKind.MediaSeekForward);
             }
         }
 

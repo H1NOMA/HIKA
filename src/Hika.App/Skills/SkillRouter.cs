@@ -49,6 +49,27 @@ public sealed class SkillRouter
                 IntentKind.NowPlaying => MediaSessions.NowPlaying(),
                 IntentKind.PlayMusic => _music.Play(behavior),
 
+                // ---- Видео ---------------------------------------------------
+                //
+                // Здесь список сеансов уже не помощник: он знает только «играй»,
+                // «стой» и «дальше». Перемотка, субтитры, скорость и полный
+                // экран делаются клавишами, которые плеер разбирает сам, —
+                // и уходят они тому окну, которое показывает видео.
+                IntentKind.MediaSeekForward => PlayerKeys.Send("перемотала вперёд", Win32.VK_RIGHT),
+                IntentKind.MediaSeekBackward => PlayerKeys.Send("перемотала назад", Win32.VK_LEFT),
+                IntentKind.MediaSeekForwardFar => PlayerKeys.Send("перемотала вперёд", 6, Win32.VK_RIGHT),
+                IntentKind.MediaSeekBackwardFar => PlayerKeys.Send("перемотала назад", 6, Win32.VK_LEFT),
+                IntentKind.MediaRestart => PlayerKeys.Send("сначала", Win32.VK_0),
+                IntentKind.MediaFullScreen => PlayerKeys.Send("во весь экран", Win32.VK_F),
+                IntentKind.MediaTheater => PlayerKeys.Send("широкий режим", Win32.VK_T),
+                IntentKind.MediaMiniPlayer => PlayerKeys.Send("мини-плеер", Win32.VK_I),
+                IntentKind.MediaCaptions => PlayerKeys.Send("субтитры", Win32.VK_C),
+                IntentKind.MediaSpeedUp => PlayerKeys.Send("быстрее", Win32.VK_SHIFT, Win32.VK_OEM_PERIOD),
+                IntentKind.MediaSpeedDown => PlayerKeys.Send("медленнее", Win32.VK_SHIFT, Win32.VK_OEM_COMMA),
+                IntentKind.MediaMute => PlayerKeys.Send("звук плеера переключён", Win32.VK_M),
+                IntentKind.NextVideo => PlayerKeys.Send("следующее видео", Win32.VK_SHIFT, Win32.VK_N),
+                IntentKind.PreviousVideo => PlayerKeys.Send("предыдущее видео", Win32.VK_SHIFT, Win32.VK_P),
+
                 // ---- Окна ---------------------------------------------------
                 IntentKind.MinimizeWindow => SystemActions.MinimizeActiveWindow(),
                 IntentKind.CloseWindow => SystemActions.CloseActiveWindow(),
