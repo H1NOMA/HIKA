@@ -360,7 +360,15 @@ public static class CommandParser
             if (tokens.Length <= opener.Length) continue;
             if (!StartsWith(tokens, opener)) continue;
 
-            var typed = string.Join(' ', tokens[opener.Length..]).Trim();
+            var rest = tokens[opener.Length..];
+
+            // «Печатай за мной» — просьба начать диктовку, а не набрать слова
+            // «за мной». Отличается это только тем, что стоит после глагола,
+            // и списком в семь строк: угадывать тут нечего, а ошибка заметна
+            // сразу — в активное окно уезжает не то.
+            if (DictationTails.Any(tail => rest.Length == tail.Length && StartsWith(rest, tail))) continue;
+
+            var typed = string.Join(' ', rest).Trim();
             if (typed.Length == 0) continue;
 
             return new Intent(IntentKind.TypeText, typed) { ExplicitVerb = true };
@@ -517,6 +525,26 @@ public static class CommandParser
         new[] { "напечатай" }, new[] { "печатай" }, new[] { "набери" },
         new[] { "введи" }, new[] { "вбей" }, new[] { "напечатать" },
         new[] { "type" },
+    };
+
+    /// <summary>
+    /// Что после «печатай» означает диктовку, а не текст для набора.
+    ///
+    /// «Печатай за мной» и «печатай привет» начинаются одинаково, а просят
+    /// прямо противоположного: первое — набирать всё, что будет сказано
+    /// дальше, второе — набрать слово «привет». Ошибка видна сразу:
+    /// в активное окно уезжает «за мной».
+    /// </summary>
+    private static readonly string[][] DictationTails =
+    {
+        new[] { "за", "мной" },
+        new[] { "за", "мною" },
+        new[] { "под", "диктовку" },
+        new[] { "всё", "подряд" },
+        new[] { "все", "подряд" },
+        new[] { "диктовку" },
+        new[] { "всё" },
+        new[] { "все" },
     };
 
     /// <summary>

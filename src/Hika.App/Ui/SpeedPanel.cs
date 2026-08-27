@@ -216,14 +216,14 @@ public sealed class AdviceRow : Control
         Controls.Add(_button);
 
         _timer = new System.Windows.Forms.Timer { Interval = 1500 };
-        _timer.Tick += (_, _) => { if (Visible) Refresh(); };
+        _timer.Tick += (_, _) => { if (Visible) Reread(); };
         _timer.Start();
 
-        Refresh();
+        Reread();
     }
 
     /// <summary>Перечитывает приговор. Зовётся и снаружи — сразу после применения правки.</summary>
-    public new void Refresh()
+    public void Reread()
     {
         SpeedAdvice? next;
         try { next = _source(); }

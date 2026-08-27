@@ -155,6 +155,14 @@ public enum IntentKind
     NextVideo,
     PreviousVideo,
 
+    // ---- Диктовка ------------------------------------------------------------
+
+    /// <summary>Всё сказанное дальше набирать в активное окно.</summary>
+    DictationStart,
+
+    /// <summary>Закончить диктовку.</summary>
+    DictationStop,
+
     // ---- Система -----------------------------------------------------------
 
     LockWorkstation,

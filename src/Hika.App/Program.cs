@@ -467,6 +467,7 @@ internal static class Program
             HostState.Sensing => "слышу голос",
             HostState.Armed => "жду команду",
             HostState.Working => "выполняю",
+            HostState.Dictating => "диктую, говорите",
             HostState.Failed => "ошибка, смотрите журнал",
             _ => "—",
         };

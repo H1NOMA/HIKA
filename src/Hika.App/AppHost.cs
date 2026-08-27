@@ -15,7 +15,7 @@ using Hika.Wake;
 
 namespace Hika;
 
-public enum HostState { Starting, Idle, Sensing, Armed, Working, Failed }
+public enum HostState { Starting, Idle, Sensing, Armed, Working, Dictating, Failed }
 
 /// <summary>
 /// Связывает всё вместе: микрофон, детектор речи, распознавание, разбор команды
@@ -544,6 +544,7 @@ public sealed class AppHost : IDisposable
         var span = frame.AsSpan(0, count);
 
         _levelMeter.Process(span);
+        WatchForDeafMicrophone(span);
 
         // Пока говорит сама, каймой правит её собственный голос — иначе два
         // источника громкости писали бы в одно поле по очереди, и свет дёргался бы.
@@ -556,6 +557,16 @@ public sealed class AppHost : IDisposable
         {
             Log.Debug("время ожидания команды вышло", "host");
             Disarm();
+        }
+
+        // И диктовка тоже. Человек сказал «диктую», отвлёкся и забыл —
+        // а она всё это время готова набрать в чужое окно что угодно.
+        if (_dictating && DateTime.UtcNow > _dictationUntil)
+        {
+            StopDictation("полторы минуты тишины");
+
+            _overlay.SetState(OverlayState.Hidden);
+            SetState(HostState.Idle);
         }
     }
 
@@ -570,7 +581,7 @@ public sealed class AppHost : IDisposable
         _speechStartedTicks = Stopwatch.GetTimestamp();
         _wakeMs = 0;
 
-        if (State == HostState.Working) return;
+        if (State is HostState.Working or HostState.Dictating) return;
 
         if (State == HostState.Armed)
         {
@@ -601,6 +612,46 @@ public sealed class AppHost : IDisposable
             : OverlayState.Hidden);
     }
 
+    private int _silentFrames;
+    private bool _deafReported;
+
+    /// <summary>
+    /// Микрофон на месте, а звука с него нет вовсе.
+    ///
+    /// Худший из отказов: программа выглядит живой, значок говорит «слушает»,
+    /// и человек месяцами уверен, что она просто плохо его понимает. Причина
+    /// при этом обычно в две минуты решаемая — приглушён в микшере Windows,
+    /// отобран доступ в параметрах приватности, выбрано не то устройство.
+    ///
+    /// Отличить это от тихой комнаты можно точно, и не порогом: живой микрофон
+    /// всегда шумит, и ровных нулей подряд от него не бывает. Цифровая тишина
+    /// в течение трёх минут означает, что сигнал не приходит вообще.
+    /// </summary>
+    private void WatchForDeafMicrophone(ReadOnlySpan<float> frame)
+    {
+        // Заглушенный и выключенный микрофон обнуляются нарочно — это не отказ.
+        if (_deafReported || _microphone.Muted || _microphone.Suppressed || _voice.IsSpeaking) return;
+
+        foreach (var sample in frame)
+        {
+            if (sample != 0f) { _silentFrames = 0; return; }
+        }
+
+        // Кадр — 32 мс; три минуты это около пяти с половиной тысяч кадров.
+        if (++_silentFrames < 5600) return;
+        _deafReported = true;
+
+        Log.Warn($"с микрофона «{_microphone.ActiveDeviceName}» три минуты идёт цифровая тишина", "audio");
+
+        StartupProblem?.Invoke(
+            $"Микрофон «{_microphone.ActiveDeviceName}» подключён, но звука с него не приходит вообще — " +
+            "три минуты ровной тишины, какой у живого микрофона не бывает.\n\n" +
+            "Обычно это одно из трёх: он приглушён в микшере Windows; доступ к микрофону запрещён " +
+            "в параметрах приватности; выбрано не то устройство.\n\n" +
+            "Проверить проще всего в настройках HIKA, раздел «Микрофон»: там есть полоска уровня — " +
+            "говорите и смотрите, двигается ли она.");
+    }
+
     private void OnSpeechAborted()
     {
         if (State == HostState.Sensing)
@@ -613,7 +664,8 @@ public sealed class AppHost : IDisposable
     private void OnProbeReady(float[] samples, int index)
     {
         // Ранняя проверка нужна только пока мы ещё не знаем, к нам ли обращаются.
-        if (State is HostState.Armed or HostState.Working) return;
+        // Во время диктовки это известно заранее: к нам, и всё сказанное — текст.
+        if (State is HostState.Armed or HostState.Working or HostState.Dictating) return;
 
         lock (_queueLock) _pendingProbe = samples;
         _workSignal.Set();
@@ -671,7 +723,7 @@ public sealed class AppHost : IDisposable
     {
         var recognizer = _probeRecognizer;
         if (!recognizer.IsReady || _wakeMatcher is null) return;
-        if (State is HostState.Armed or HostState.Working) return;
+        if (State is HostState.Armed or HostState.Working or HostState.Dictating) return;
 
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         _probeCancellation = cancellation;
@@ -723,6 +775,7 @@ public sealed class AppHost : IDisposable
         }
 
         var wasArmed = State == HostState.Armed && DateTime.UtcNow <= _armedUntil;
+        var wasDictating = _dictating;
 
         // Человек заговорил, пока мы отвечаем, — значит, слушать надо его,
         // а не договаривать своё.
@@ -750,6 +803,15 @@ public sealed class AppHost : IDisposable
             Log.Info($"услышано: «{result.Text}» [{result.Language}, {result.Elapsed.TotalMilliseconds:F0} мс]", "host");
 
         WatchRecognitionSpeed(samples.Length, result.Elapsed);
+
+        // Диктовка отвечает раньше всех остальных: имя в ней не звучит,
+        // команды не разбираются, и всё сказанное — текст. Единственное,
+        // что здесь проверяется, — не просят ли её закончить.
+        if (wasDictating)
+        {
+            HandleDictation(result.Text, stopwatch);
+            return;
+        }
 
         // Слагаемые ожидания собираются здесь, а последнее — время самого
         // действия — дописывается в конце круга. Порознь эти числа ничего
@@ -825,6 +887,30 @@ public sealed class AppHost : IDisposable
 
         var intent = CommandParser.Parse(command);
         Log.Info($"команда: «{command}» -> {intent}", "host");
+
+        // Диктовка — состояние, а не действие, и исполнителю команд её
+        // не поручить: он ничего не знает о том, что будет дальше.
+        if (intent.Kind is IntentKind.DictationStart or IntentKind.DictationStop)
+        {
+            journal.Intent = intent.ToString();
+            journal.Success = true;
+            Record(journal, command);
+
+            if (intent.Kind == IntentKind.DictationStart)
+            {
+                Note(result.Text, "диктовка", "начата", HeardOutcome.Done, match.Score, stopwatch);
+
+                CompleteSpeedSample(stopwatch);
+                StartDictation();
+                return;
+            }
+
+            StopDictation("сказали закончить");
+            Note(result.Text, "диктовка", "закончена", HeardOutcome.Done, match.Score, stopwatch);
+
+            Finish(true, stopwatch);
+            return;
+        }
 
         // Разговор, начатый минуту назад, продолжается: реплика без глагола
         // после ответа — это почти наверняка продолжение, а не название
@@ -914,6 +1000,113 @@ public sealed class AppHost : IDisposable
             _voice.Say(outcome.Description);
 
         Finish(outcome.Success, stopwatch);
+    }
+
+    // ---- Диктовка ------------------------------------------------------------
+
+    private bool _dictating;
+    private bool _dictationNeedsSpace;
+    private DateTime _dictationUntil = DateTime.MinValue;
+
+    /// <summary>
+    /// Сколько молчать, чтобы диктовка закончилась сама.
+    ///
+    /// Существует ровно для одного случая: человек сказал «диктую», отвлёкся
+    /// и забыл. Диктовка, которая ждёт вечно, однажды наберёт в чужое окно
+    /// разговор с домашними — и это та ошибка, после которой возможностью
+    /// перестают пользоваться совсем.
+    /// </summary>
+    private static readonly TimeSpan DictationIdle = TimeSpan.FromSeconds(90);
+
+    /// <summary>Идёт диктовка — всё сказанное набирается в активное окно.</summary>
+    public bool Dictating => _dictating;
+
+    private void StartDictation()
+    {
+        _dictating = true;
+        _dictationNeedsSpace = false;
+
+        Log.Info("диктовка началась", "host");
+        ResumeDictation();
+    }
+
+    private void ResumeDictation()
+    {
+        _dictationUntil = DateTime.UtcNow.Add(DictationIdle);
+
+        SetState(HostState.Dictating);
+
+        // Кайма горит всё время диктовки, и это единственный случай, когда
+        // ей положено гореть подолгу: она здесь означает не «я вас слышу»,
+        // а «всё, что вы скажете, сейчас окажется в окне». Такое лучше видеть.
+        _overlay.SetState(OverlayState.Listening);
+    }
+
+    private void StopDictation(string why)
+    {
+        if (!_dictating) return;
+
+        _dictating = false;
+        _dictationUntil = DateTime.MinValue;
+
+        Log.Info($"диктовка закончена: {why}", "host");
+    }
+
+    /// <summary>
+    /// Продиктованная фраза. Возвращает false, если это была не диктовка,
+    /// а просьба её закончить.
+    /// </summary>
+    private void HandleDictation(string text, Stopwatch stopwatch)
+    {
+        // В счёт скорости диктовка не идёт: там нет ни разбора, ни поиска,
+        // и мерить в ней нечего.
+        _pendingValid = false;
+
+        if (Dictation.IsStop(text))
+        {
+            StopDictation("сказали «стоп»");
+
+            Note(text, "диктовка", "закончена", HeardOutcome.Done, 0, stopwatch);
+            _overlay.SetState(OverlayState.Success);
+            SetState(HostState.Idle);
+            return;
+        }
+
+        var typed = Dictation.Punctuate(text);
+
+        if (typed.Length == 0)
+        {
+            ResumeDictation();
+            return;
+        }
+
+        // Пробел между фразами, но не после переноса строки и не в начале.
+        var payload = _dictationNeedsSpace ? " " + typed : typed;
+
+        var result = SystemActions.TypeText(payload);
+
+        _dictationNeedsSpace = !typed.EndsWith('\n');
+
+        Log.Info($"надиктовано: «{typed}»", "host");
+        Note(text, "диктовка", typed, result.Success ? HeardOutcome.Done : HeardOutcome.Failed, 0, stopwatch);
+
+        if (!result.Success)
+        {
+            // Набирать некуда — например, впереди окно с повышенными правами.
+            // Молча продолжать диктовать в никуда бессмысленно.
+            StopDictation("набор не прошёл");
+
+            _overlay.SetState(OverlayState.Failed);
+            SetState(HostState.Idle);
+
+            StartupProblem?.Invoke(
+                "Не получилось набрать текст в активное окно. Так бывает с программами, " +
+                "запущенными от администратора: обычная программа не может им ничего отправить. " +
+                "Диктовку я остановила.");
+            return;
+        }
+
+        ResumeDictation();
     }
 
     // ---- Самоизмерение -----------------------------------------------------
@@ -1388,6 +1581,18 @@ public sealed class AppHost : IDisposable
             return;
         }
 
+        if (_dictating)
+        {
+            // Клавиша — последний рубеж: если диктовка почему-то не слышит
+            // слова «стоп», выйти из неё всё равно должно быть можно.
+            Log.Info("диктовка остановлена клавишей", "host");
+
+            StopDictation("нажали клавишу");
+            SetState(HostState.Idle);
+            _overlay.SetState(OverlayState.Success);
+            return;
+        }
+
         if (State == HostState.Armed)
         {
             Log.Info("отбой по клавише", "host");
@@ -1425,7 +1630,13 @@ public sealed class AppHost : IDisposable
         {
             _segmenter?.Reset();
             _levelMeter.Reset();
+
+            // Выключенный микрофон — самый быстрый и самый очевидный способ
+            // оборвать диктовку. Он обязан работать и здесь.
+            StopDictation("выключили микрофон");
             Disarm();
+
+            SetState(HostState.Idle);
             _overlay.SetState(OverlayState.Hidden);
         }
     }

@@ -135,6 +135,7 @@ public sealed class TrayIcon : IDisposable
                 HostState.Sensing => "Слышу голос…",
                 HostState.Armed => "Жду команду",
                 HostState.Working => "Выполняю…",
+                HostState.Dictating => "Диктую — говорите",
                 HostState.Failed => "Ошибка — смотрите журнал",
                 _ => "—",
             };

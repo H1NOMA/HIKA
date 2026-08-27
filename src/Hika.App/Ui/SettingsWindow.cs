@@ -451,7 +451,7 @@ public sealed class SettingsWindow : Form
             LoadFromConfig();
 
             _onApply(_store.Current);
-            _adviceRow?.Refresh();
+            _adviceRow?.Reread();
 
             SetNotice("Сохранено: " + done);
             Log.Info($"скорость: применено «{advice.FixLabel}» — {done}", "ui");
