@@ -1177,6 +1177,19 @@ public sealed class AppHost : IDisposable
 
         var action = (int)stopwatch.ElapsedMilliseconds - _pending.RecognitionMs;
         _speed.Add(_pending with { ActionMs = Math.Max(0, action) });
+
+        // Раз в десяток команд итог уходит и в журнал. Человек журнал
+        // не читает — но если он его однажды пришлёт, разбираться в скорости
+        // по нему станет можно, не прося ничего запускать.
+        if (_speed.Count % 10 != 0) return;
+
+        if (_speed.Summary() is { } summary)
+        {
+            Log.Info($"скорость по последним {summary.Commands}: всего {summary.TotalMs} мс " +
+                     $"(тишина {summary.SilenceMs}, распознавание {summary.RecognitionMs}, " +
+                     $"действие {summary.ActionMs}), кайма через {summary.WakeMs} мс, " +
+                     $"к длине речи {summary.RealTime:0.00}", "host");
+        }
     }
 
     /// <summary>До какого момента следующая фраза считается продолжением уже начатого.</summary>
