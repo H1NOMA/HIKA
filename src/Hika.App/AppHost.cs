@@ -343,6 +343,9 @@ public sealed class AppHost : IDisposable
     /// <summary>Распознавание поднялось и команды принимаются.</summary>
     public event Action? Ready;
 
+    /// <summary>Спросили, что она умеет, — надо показать список.</summary>
+    public event Action? HelpRequested;
+
     /// <summary>Показывает, чем она занята. Чаще раза в секунду не тревожим.</summary>
     private DateTime _lastAnnounce = DateTime.MinValue;
     private string _lastAnnounced = "";
@@ -887,6 +890,27 @@ public sealed class AppHost : IDisposable
 
         var intent = CommandParser.Parse(command);
         Log.Info($"команда: «{command}» -> {intent}", "host");
+
+        // «Что ты умеешь» — вопрос, который задают первым. Ответить на него
+        // голосом нельзя: полсотни команд, прочитанных вслух подряд, никто
+        // не дослушает. Поэтому открывается список, который можно читать
+        // глазами и к которому можно вернуться.
+        if (intent.Kind == IntentKind.Help)
+        {
+            journal.Intent = "справка";
+            journal.Success = true;
+            Record(journal, command);
+
+            Note(result.Text, "справка", "показала список", HeardOutcome.Done, match.Score, stopwatch);
+
+            _voice.Say("Вот что я умею");
+
+            try { HelpRequested?.Invoke(); }
+            catch (Exception ex) { Log.Error("список команд не открылся", ex, "host"); }
+
+            Finish(true, stopwatch);
+            return;
+        }
 
         // Диктовка — состояние, а не действие, и исполнителю команд её
         // не поручить: он ничего не знает о том, что будет дальше.

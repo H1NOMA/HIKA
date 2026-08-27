@@ -324,6 +324,13 @@ internal static class Program
             tray.UpdateState(host.State, host.Muted);
         };
 
+        // «Что ты умеешь» открывает окно сразу на списке команд.
+        host.HelpRequested += () => OnUi(() =>
+        {
+            try { GetSettings().ShowWindow("help"); }
+            catch (Exception ex) { Log.Error("список команд не открылся", ex, "ui"); }
+        });
+
         tray.DiagnosticsRequested += () => LaunchInConsole(tray, "--diagnose");
         tray.LiveListenRequested += () => LaunchInConsole(tray, "--listen");
         tray.ExitRequested += () => Application.Exit();

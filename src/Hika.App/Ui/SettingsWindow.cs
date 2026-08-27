@@ -224,6 +224,7 @@ public sealed class SettingsWindow : Form
         _nav.SetItems(new[]
         {
             ("persona", "Личность"),
+            ("help", "Что я умею"),
             ("happening", "Что происходит"),
             ("mic", "Микрофон"),
             ("speech", "Распознавание"),
@@ -312,6 +313,7 @@ public sealed class SettingsWindow : Form
     private void BuildPages()
     {
         _pages["persona"] = SafePage("Личность", BuildPersonaPage);
+        _pages["help"] = SafePage("Что я умею", BuildHelpPage);
         _pages["happening"] = SafePage("Что происходит", BuildHappeningPage);
         _pages["mic"] = SafePage("Микрофон", BuildMicrophonePage);
         _pages["speech"] = SafePage("Распознавание", BuildSpeechPage);
@@ -366,6 +368,32 @@ public sealed class SettingsWindow : Form
             new SettingRow("Искать имя в любом месте фразы",
                 "Обычно имя ждут в начале. Включённое заметно повышает число ложных срабатываний.",
                 _allowAnywhere, 46));
+    }
+
+    // ---- Что я умею -------------------------------------------------------
+
+    /// <summary>
+    /// Список команд, который можно читать глазами.
+    ///
+    /// Отвечает на вопрос, который человек задаёт первым и на который до сих
+    /// пор отвечать было нечем: полтораста команд невозможно помнить,
+    /// а отправлять за ними в документацию — способ гарантировать, что туда
+    /// никто не пойдёт.
+    ///
+    /// Каждый пример здесь проверяется тестом на то, что он действительно
+    /// разбирается в обещанную команду. Подсказка, которая врёт, хуже
+    /// отсутствующей: человек говорит написанное, ничего не происходит,
+    /// и вывод он делает про всю программу.
+    /// </summary>
+    private Control BuildHelpPage()
+    {
+        var name = Personas.ById(_personaId).Name;
+
+        return Stack(
+            new SectionTitle("Что я умею",
+                $"Сначала имя, потом команда: «{name}, открой ютуб». Слова-паразиты и порядок слов " +
+                $"значения не имеют — «{name}, открой ко мне уже эти настройки» тоже сработает."),
+            new CommandBook());
     }
 
     // ---- Что происходит ---------------------------------------------------
@@ -1424,11 +1452,22 @@ public sealed class SettingsWindow : Form
 
     // ---- Показ и скрытие --------------------------------------------------
 
-    public void ShowWindow()
+    /// <param name="page">
+    /// Раздел, который надо показать. Пусто — тот, что был открыт прошлый раз.
+    /// Нужно для «что ты умеешь»: окно должно открыться сразу на списке
+    /// команд, а не на том разделе, где человек в прошлый раз что-то крутил.
+    /// </param>
+    public void ShowWindow(string? page = null)
     {
         _config = _store.Current;
         LoadFromConfig();
         RefreshDevices();
+
+        if (!string.IsNullOrEmpty(page) && _pages.ContainsKey(page))
+        {
+            _nav.Select(page);
+            ShowPage(page);
+        }
 
         Show();
 

@@ -783,6 +783,16 @@ public sealed class NavList : Control
         Invalidate();
     }
 
+    /// <summary>Выбрать раздел не мышью, а из кода.</summary>
+    public void Select(string key)
+    {
+        var index = _items.FindIndex(i => i.Key == key);
+        if (index < 0 || index == _selected) return;
+
+        _selected = index;
+        Invalidate();
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var index = e.Y / ItemHeight;
