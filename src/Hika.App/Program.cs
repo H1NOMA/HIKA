@@ -331,6 +331,12 @@ internal static class Program
             catch (Exception ex) { Log.Error("список команд не открылся", ex, "ui"); }
         });
 
+        tray.HelpRequested += () =>
+        {
+            try { GetSettings().ShowWindow("help"); }
+            catch (Exception ex) { Log.Error("список команд не открылся", ex, "ui"); }
+        };
+
         tray.DiagnosticsRequested += () => LaunchInConsole(tray, "--diagnose");
         tray.LiveListenRequested += () => LaunchInConsole(tray, "--listen");
         tray.ExitRequested += () => Application.Exit();

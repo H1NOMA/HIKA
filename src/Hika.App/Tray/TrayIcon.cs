@@ -49,6 +49,9 @@ public sealed class TrayIcon : IDisposable
     public event Action? LiveListenRequested;
     public event Action? SettingsRequested;
 
+    /// <summary>Попросили показать список команд.</summary>
+    public event Action? HelpRequested;
+
     public TrayIcon(string personaId)
     {
         _personaId = Personas.ById(personaId).Id;
@@ -81,7 +84,12 @@ public sealed class TrayIcon : IDisposable
         _menu.Items.Add(_muteItem);
         _menu.Items.Add(_autostartItem);
         _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add(new ToolStripMenuItem("Что я слышу", null, (_, _) => LiveListenRequested?.Invoke()));
+
+        // Самое частое, за чем сюда приходят после «а что она умеет»:
+        // список команд должен быть виден оттуда же, откуда видна программа.
+        _menu.Items.Add(new ToolStripMenuItem("Что я умею", null, (_, _) => HelpRequested?.Invoke()));
+
+        _menu.Items.Add(new ToolStripMenuItem("Живая проверка", null, (_, _) => LiveListenRequested?.Invoke()));
         _menu.Items.Add(new ToolStripMenuItem("Диагностика", null, (_, _) => DiagnosticsRequested?.Invoke()));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Выход", null, (_, _) => ExitRequested?.Invoke()));
