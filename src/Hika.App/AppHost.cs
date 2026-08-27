@@ -56,6 +56,13 @@ public sealed class AppHost : IDisposable
     private readonly Timers _timers = new();
     private LearningEngine? _learning;
 
+    // Программа измеряет саму себя. Без этого разговор о скорости упирается
+    // в то, что числа знает только тот, кто откроет консоль, — а он её
+    // не откроет. Всё, что здесь копится, живёт в памяти и показывается
+    // в окне настроек, разделе «Что происходит».
+    private readonly SpeedLog _speed = new();
+    private readonly RecentCommands _recent = new();
+
     private IVoiceActivityDetector? _vad;
     private UtteranceSegmenter? _segmenter;
     private WakeWordMatcher? _wakeMatcher;
@@ -96,6 +103,12 @@ public sealed class AppHost : IDisposable
     public ClaudeBrain Brain => _brain;
     public LearningEngine? Learning => _learning;
 
+    /// <summary>Из чего складывалось ожидание в последних командах.</summary>
+    public SpeedLog Speed => _speed;
+
+    /// <summary>Последние услышанные фразы и что с ними стало.</summary>
+    public RecentCommands Recent => _recent;
+
     /// <summary>Текущая громкость голоса, 0..1 — для полоски уровня в настройках.</summary>
     public double CurrentLevel => _microphone.Muted ? 0 : _levelMeter.Normalized;
 
@@ -104,6 +117,17 @@ public sealed class AppHost : IDisposable
 
     /// <summary>Что-то пошло не так на старте и требует внимания человека.</summary>
     public event Action<string>? StartupProblem;
+
+    /// <summary>
+    /// Чем она занята, пока ещё не готова слушать. Пустая строка — готова.
+    ///
+    /// Первый запуск качает около двухсот мегабайт, и все эти минуты программа
+    /// выглядит запустившейся и молчащей. Человек в это время говорит ей
+    /// команды, не получает ничего и делает единственный доступный ему
+    /// вывод — что она не работает. Сказать, что идёт загрузка, стоит
+    /// одной строки; не сказать — стоит доверия.
+    /// </summary>
+    public event Action<string>? Preparing;
 
     public AppHost(ConfigStore configStore)
     {
@@ -217,6 +241,8 @@ public sealed class AppHost : IDisposable
 
     private async Task LoadModelsAsync(HikaConfig config)
     {
+        Announce("Готовлю распознавание речи…");
+
         // Детектор речи — первым: он маленький, а пользы от него сразу много.
         try
         {
@@ -250,11 +276,20 @@ public sealed class AppHost : IDisposable
         {
             var modelPath = await WhisperModelProvider.EnsureAsync(
                 config.Speech,
-                (fraction, text) => Log.Info($"модель: {text} ({fraction:P0})", "host"),
+                (fraction, text) =>
+                {
+                    Log.Info($"модель: {text} ({fraction:P0})", "host");
+
+                    // Проценты — единственное, что отличает «качается» от «зависла».
+                    Announce(fraction >= 1
+                        ? "Модель скачана, загружаю…"
+                        : $"Скачиваю модель: {fraction:P0}");
+                },
                 _shutdown.Token).ConfigureAwait(false);
 
             if (modelPath is null)
             {
+                Announce("");
                 StartupProblem?.Invoke(
                     "Не удалось скачать модель распознавания речи. Проверьте интернет — " +
                     "или положите файл модели вручную, путь указан в файле НАСТРОЙКА.md.");
@@ -271,13 +306,18 @@ public sealed class AppHost : IDisposable
                 Log.Info($"свой словарь: {string.Join(", ", vocabulary.Take(10))}" +
                          (vocabulary.Count > 10 ? $" и ещё {vocabulary.Count - 10}" : ""), "host");
 
+            Announce("Загружаю модель…");
+
             if (!await _recognizer.LoadAsync(modelPath, config.Speech, words, vocabulary).ConfigureAwait(false))
             {
+                Announce("");
                 StartupProblem?.Invoke("Модель распознавания не загрузилась. Подробности в журнале.");
                 return;
             }
 
             await LoadProbeModelAsync(config, words).ConfigureAwait(false);
+
+            Announce("Разогреваюсь…");
 
             // Прогрев обеих моделей. Первое распознавание всегда заметно
             // дольше остальных, и без прогрева это ожидание достаётся первой
@@ -287,12 +327,42 @@ public sealed class AppHost : IDisposable
             if (!_probeSharesMain) await _probeOwned.WarmUpAsync().ConfigureAwait(false);
 
             Log.Info("=== HIKA готова слушать ===", "host");
+
+            Announce("");
+            Ready?.Invoke();
         }
         catch (Exception ex)
         {
             Log.Error("загрузка распознавания сорвалась", ex, "host");
+
+            Announce("");
             StartupProblem?.Invoke("Распознавание речи не запустилось. Подробности в журнале.");
         }
+    }
+
+    /// <summary>Распознавание поднялось и команды принимаются.</summary>
+    public event Action? Ready;
+
+    /// <summary>Показывает, чем она занята. Чаще раза в секунду не тревожим.</summary>
+    private DateTime _lastAnnounce = DateTime.MinValue;
+    private string _lastAnnounced = "";
+
+    private void Announce(string what)
+    {
+        // Проценты приходят на каждый прочитанный килобайт. Значок в трее
+        // перерисовывать столько раз незачем, а вот подпись «готово»
+        // потерять нельзя — поэтому она проходит всегда.
+        if (what.Length > 0)
+        {
+            if (what == _lastAnnounced) return;
+            if ((DateTime.UtcNow - _lastAnnounce).TotalMilliseconds < 700) return;
+        }
+
+        _lastAnnounced = what;
+        _lastAnnounce = DateTime.UtcNow;
+
+        try { Preparing?.Invoke(what); }
+        catch (Exception ex) { Log.Debug($"сообщение о подготовке не дошло: {ex.Message}", "host"); }
     }
 
     private void RefreshInstalledApps()
@@ -489,8 +559,17 @@ public sealed class AppHost : IDisposable
         }
     }
 
+    /// <summary>Когда началась речь — от неё считается, через сколько загорелась кайма.</summary>
+    private long _speechStartedTicks;
+
+    /// <summary>Сколько прошло от начала речи до вспышки каймы. Ноль — имя не проверялось.</summary>
+    private int _wakeMs;
+
     private void OnSpeechStarted()
     {
+        _speechStartedTicks = Stopwatch.GetTimestamp();
+        _wakeMs = 0;
+
         if (State == HostState.Working) return;
 
         if (State == HostState.Armed)
@@ -612,7 +691,15 @@ public sealed class AppHost : IDisposable
         var match = _wakeMatcher.Match(result.Text);
         if (!match.Matched) return;
 
-        Log.Info($"имя услышано на ранней проверке: «{result.Text}» ({result.Elapsed.TotalMilliseconds:F0} мс)", "host");
+        // Ровно та задержка, которую человек видит глазами: от того момента,
+        // как он начал говорить, до вспышки каймы. Всё остальное в скорости
+        // можно объяснить, а это он просто видит.
+        var started = Volatile.Read(ref _speechStartedTicks);
+        if (started > 0)
+            _wakeMs = (int)((Stopwatch.GetTimestamp() - started) * 1000 / Stopwatch.Frequency);
+
+        Log.Info($"имя услышано на ранней проверке: «{result.Text}» " +
+                 $"({result.Elapsed.TotalMilliseconds:F0} мс, кайма через {_wakeMs} мс)", "host");
 
         // Кайма разгорается прямо посреди фразы — человек ещё говорит,
         // а уже видит, что его слушают. Ради этого момента всё и затевалось.
@@ -664,6 +751,19 @@ public sealed class AppHost : IDisposable
 
         WatchRecognitionSpeed(samples.Length, result.Elapsed);
 
+        // Слагаемые ожидания собираются здесь, а последнее — время самого
+        // действия — дописывается в конце круга. Порознь эти числа ничего
+        // не значат: «медленно» становится диагнозом, только когда видно,
+        // какая из трёх частей длиннее остальных.
+        _pending = new SpeedSample
+        {
+            WakeMs = _wakeMs,
+            SilenceMs = _configStore.Current.Audio.SilenceMs,
+            RecognitionMs = (int)result.Elapsed.TotalMilliseconds,
+            AudioMs = (int)(samples.Length * 1000L / AudioFormat.SampleRate),
+        };
+        _pendingValid = true;
+
         var match = _wakeMatcher.Match(result.Text);
 
         string command;
@@ -695,7 +795,13 @@ public sealed class AppHost : IDisposable
             // не наше ли это имя, просто расслышанное как что-то другое.
             NoteWakeNearMiss(result.Text);
 
+            // Записываем и это. «Она меня не слышит» почти всегда означает
+            // «имя расслышано как другое слово», и увидеть, как именно,
+            // можно только в списке непринятых фраз.
+            Note(result.Text, "не обращение", "", HeardOutcome.NotForUs, match.Score, stopwatch);
+
             Log.Debug("обращение не к нам, пропускаю", "host");
+            _pendingValid = false;
             ResetToIdle();
             return;
         }
@@ -737,6 +843,7 @@ public sealed class AppHost : IDisposable
             journal.Intent = "разговор";
             journal.Success = Talk(command);
             Record(journal, command);
+            Note(result.Text, "разговор", "", HeardOutcome.Talk, match.Score, stopwatch);
             FinishTalk(journal.Success, stopwatch);
             return;
         }
@@ -748,12 +855,14 @@ public sealed class AppHost : IDisposable
                 journal.Intent = "разговор";
                 journal.Success = Talk(command);
                 Record(journal, command);
+                Note(result.Text, "разговор", "", HeardOutcome.Talk, match.Score, stopwatch);
                 FinishTalk(journal.Success, stopwatch);
                 return;
             }
 
             journal.Intent = "не разобрано";
             Record(journal, command);
+            Note(result.Text, "не разобрано", "", HeardOutcome.NotUnderstood, match.Score, stopwatch);
             Finish(false, stopwatch);
             return;
         }
@@ -789,6 +898,7 @@ public sealed class AppHost : IDisposable
             // человек сейчас переспросит иначе, и связать одну формулировку
             // с другой можно только помня, что первая не сработала.
             Record(journal, command);
+            Note(result.Text, "разговор вместо команды", "", HeardOutcome.Talk, match.Score, stopwatch);
 
             FinishTalk(Talk(command), stopwatch);
             return;
@@ -796,11 +906,46 @@ public sealed class AppHost : IDisposable
 
         Record(journal, command);
 
+        Note(result.Text, intent.ToString(), outcome.Description,
+            outcome.Success ? HeardOutcome.Done : HeardOutcome.Failed, match.Score, stopwatch);
+
         if (!outcome.Success) SayFailure(outcome.Description);
         else if (SpeaksResult(intent.Kind) || _configStore.Current.Voice.SpeakConfirmations)
             _voice.Say(outcome.Description);
 
         Finish(outcome.Success, stopwatch);
+    }
+
+    // ---- Самоизмерение -----------------------------------------------------
+
+    private SpeedSample _pending;
+    private bool _pendingValid;
+
+    /// <summary>Запоминает услышанную фразу для раздела «Что происходит».</summary>
+    private void Note(string text, string intent, string result, HeardOutcome outcome,
+        double wakeScore, Stopwatch stopwatch)
+    {
+        try
+        {
+            _recent.Add(new Heard(text, intent, result, outcome, (int)stopwatch.ElapsedMilliseconds, wakeScore));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"наблюдение за фразой не записалось: {ex.Message}", "host");
+        }
+    }
+
+    /// <summary>
+    /// Дописывает последнее слагаемое ожидания — время самого действия —
+    /// и кладёт готовое измерение в общий счёт.
+    /// </summary>
+    private void CompleteSpeedSample(Stopwatch stopwatch)
+    {
+        if (!_pendingValid) return;
+        _pendingValid = false;
+
+        var action = (int)stopwatch.ElapsedMilliseconds - _pending.RecognitionMs;
+        _speed.Add(_pending with { ActionMs = Math.Max(0, action) });
     }
 
     /// <summary>До какого момента следующая фраза считается продолжением уже начатого.</summary>
@@ -1001,6 +1146,11 @@ public sealed class AppHost : IDisposable
     {
         Log.Debug($"разговорный круг за {stopwatch.ElapsedMilliseconds} мс", "host");
 
+        // В счёт скорости разговор не идёт. Там время уходит на сеть и чужой
+        // сервер, и подмешивать его к своим числам значит объявить программу
+        // медленной за то, к чему она не имеет отношения.
+        _pendingValid = false;
+
         if (!success)
         {
             Finish(false, stopwatch);
@@ -1158,6 +1308,8 @@ public sealed class AppHost : IDisposable
     private void Finish(bool success, Stopwatch stopwatch)
     {
         _overlay.SetState(success ? OverlayState.Success : OverlayState.Failed);
+
+        CompleteSpeedSample(stopwatch);
 
         // Дальше слушаем молча. Ждать продолжения и одновременно светиться —
         // разные вещи: горящая всё это время кайма превращает «слушаю»

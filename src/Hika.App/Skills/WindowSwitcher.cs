@@ -80,6 +80,13 @@ public static class WindowSwitcher
 
         Candidate? best = null;
 
+        // Имя процесса по его номеру. Process.GetProcessById — дорогое
+        // обращение, а у одного браузера бывает два десятка окон с одним
+        // и тем же номером: без этого словаря половина времени команды
+        // «переключись на хром» уходила на то, чтобы двадцать раз узнать,
+        // что хром называется хромом.
+        var names = new Dictionary<uint, string>();
+
         try
         {
             Win32.EnumWindows((handle, _) =>
@@ -90,7 +97,7 @@ public static class WindowSwitcher
                 if (title.Length < 2) return true;
                 if (Ignored.Any(i => title.Equals(i, StringComparison.OrdinalIgnoreCase))) return true;
 
-                var process = ProcessName(handle);
+                var process = ProcessName(handle, names);
 
                 // Сравниваем и с заголовком, и с именем процесса. Заголовок
                 // у браузера — название страницы, и «хром» в нём стоит в самом
@@ -139,15 +146,30 @@ public static class WindowSwitcher
         return best;
     }
 
-    private static string ProcessName(IntPtr handle)
+    private static string ProcessName(IntPtr handle, Dictionary<uint, string> cache)
     {
         try
         {
             Win32.GetWindowThreadProcessId(handle, out var pid);
             if (pid == 0) return "";
 
-            using var process = Process.GetProcessById((int)pid);
-            return process.ProcessName;
+            if (cache.TryGetValue(pid, out var known)) return known;
+
+            string name;
+            try
+            {
+                using var process = Process.GetProcessById((int)pid);
+                name = process.ProcessName;
+            }
+            catch
+            {
+                // Процесс успел закрыться между обходом и запросом — обычное
+                // дело, и запоминаем мы это тоже: спрашивать снова незачем.
+                name = "";
+            }
+
+            cache[pid] = name;
+            return name;
         }
         catch
         {

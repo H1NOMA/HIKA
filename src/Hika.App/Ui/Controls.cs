@@ -141,6 +141,17 @@ public sealed class SliderField : Control
         get => _value;
         set
         {
+            // Значение из настроек, не попавшее в диапазон ползунка, означает,
+            // что неверен диапазон, а не значение. Подтянуть его к границе
+            // молча — худшее из возможного: человек открыл окно посмотреть,
+            // нажал «Применить», и настройка изменилась сама, без его участия
+            // и без единого следа. Такое ищется потом сутками.
+            //
+            // Значения приходят уже проверенными на разумность (ConfigStore),
+            // поэтому раздвинуть границы здесь безопаснее, чем соврать.
+            if (value < Minimum) Minimum = value;
+            if (value > Maximum) Maximum = value;
+
             var clamped = Math.Clamp(value, Minimum, Maximum);
             if (Step > 0) clamped = Math.Round(clamped / Step) * Step;
             if (Math.Abs(_value - clamped) < 1e-9) return;

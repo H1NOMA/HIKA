@@ -32,6 +32,17 @@ public sealed class TrayIcon : IDisposable
     private string _personaId = "hika";
     private bool _muted;
 
+    /// <summary>
+    /// Чем она занята, пока ещё не готова. Пусто — готова.
+    ///
+    /// Перекрывает обычное состояние намеренно: «Слушает» во время загрузки
+    /// модели — неправда, и именно эта неправда заставляет человека говорить
+    /// команды в пустоту и решать, что программа сломана.
+    /// </summary>
+    private string _preparing = "";
+
+    private HostState _state = HostState.Starting;
+
     public event Action? MuteToggleRequested;
     public event Action? ExitRequested;
     public event Action? DiagnosticsRequested;
@@ -101,11 +112,21 @@ public sealed class TrayIcon : IDisposable
         RefreshIcon();
     }
 
+    /// <summary>Показать, что она ещё готовится. Пустая строка — готова.</summary>
+    public void SetPreparing(string what)
+    {
+        _preparing = what ?? "";
+        UpdateState(_state, _muted);
+    }
+
     public void UpdateState(HostState state, bool muted)
     {
         _muted = muted;
+        _state = state;
 
-        var status = muted
+        var status = _preparing.Length > 0
+            ? _preparing
+            : muted
             ? "Микрофон выключен"
             : state switch
             {

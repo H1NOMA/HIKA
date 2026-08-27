@@ -221,6 +221,30 @@ internal static class Program
         using var host = new AppHost(store);
         using var tray = new TrayIcon(config.Persona);
 
+        // Значок в трее живёт в потоке интерфейса, а новости ему приходят
+        // отовсюду: из потока звука, из загрузки моделей, из распознавания.
+        // Трогать NotifyIcon оттуда напрямую нельзя — это тот род ошибки,
+        // который проявляется раз в неделю и никогда при отладке.
+        //
+        // Невидимый элемент управления — самая дешёвая точка входа в нужный
+        // поток: обращение к Handle создаёт окно прямо здесь, а дальше
+        // BeginInvoke знает, куда слать.
+        using var ui = new Control();
+        _ = ui.Handle;
+
+        void OnUi(Action action)
+        {
+            try
+            {
+                if (ui.IsHandleCreated && ui.InvokeRequired) ui.BeginInvoke(action);
+                else action();
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"сообщение интерфейсу не дошло: {ex.Message}", "ui");
+            }
+        }
+
         // Горячие клавиши поднимаем здесь, а не внутри хоста: они должны
         // работать всё время, пока программа запущена, и переживать
         // и перенастройку, и закрытое окно настроек.
@@ -304,16 +328,36 @@ internal static class Program
         tray.LiveListenRequested += () => LaunchInConsole(tray, "--listen");
         tray.ExitRequested += () => Application.Exit();
 
-        host.StateChanged += state =>
-        {
-            try { tray.UpdateState(state, host.Muted); }
-            catch { /* значок мог уже исчезнуть */ }
-        };
+        host.StateChanged += state => OnUi(() => tray.UpdateState(state, host.Muted));
 
         host.StartupProblem += message =>
         {
             Log.Warn($"проблема при запуске: {message}", "startup");
-            tray.ShowMessage("HIKA", message, ToolTipIcon.Warning);
+            OnUi(() => tray.ShowMessage("HIKA", message, ToolTipIcon.Warning));
+        };
+
+        // Пока качается модель, программа выглядит запустившейся и молчащей.
+        // Человек в это время говорит ей команды, ничего не получает и делает
+        // единственный доступный ему вывод. Проценты в подписи значка стоят
+        // одной строки и снимают этот вывод целиком.
+        var downloading = false;
+
+        host.Preparing += what =>
+        {
+            // Загрузкой считается только то, что действительно шло с процентами:
+            // обычный запуск с готовыми моделями проходит эти же состояния
+            // за пару секунд, и объявлять о готовности там незачем.
+            if (what.StartsWith("Скачиваю", StringComparison.Ordinal)) downloading = true;
+
+            OnUi(() => tray.SetPreparing(what));
+        };
+
+        host.Ready += () =>
+        {
+            if (!downloading) return;
+
+            OnUi(() => tray.ShowMessage("HIKA готова",
+                $"Скажите «{string.Join("» или «", config.Wake.Words.Select(Capitalize))}» и команду."));
         };
 
         store.Changed += updated =>

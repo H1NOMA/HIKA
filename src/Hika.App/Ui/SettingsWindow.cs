@@ -224,6 +224,7 @@ public sealed class SettingsWindow : Form
         _nav.SetItems(new[]
         {
             ("persona", "Личность"),
+            ("happening", "Что происходит"),
             ("mic", "Микрофон"),
             ("speech", "Распознавание"),
             ("voice", "Голос"),
@@ -311,6 +312,7 @@ public sealed class SettingsWindow : Form
     private void BuildPages()
     {
         _pages["persona"] = SafePage("Личность", BuildPersonaPage);
+        _pages["happening"] = SafePage("Что происходит", BuildHappeningPage);
         _pages["mic"] = SafePage("Микрофон", BuildMicrophonePage);
         _pages["speech"] = SafePage("Распознавание", BuildSpeechPage);
         _pages["voice"] = SafePage("Голос", BuildVoicePage);
@@ -364,6 +366,101 @@ public sealed class SettingsWindow : Form
             new SettingRow("Искать имя в любом месте фразы",
                 "Обычно имя ждут в начале. Включённое заметно повышает число ложных срабатываний.",
                 _allowAnywhere, 46));
+    }
+
+    // ---- Что происходит ---------------------------------------------------
+
+    private AdviceRow? _adviceRow;
+    private Label _heardVerdict = null!;
+
+    /// <summary>
+    /// Раздел, отвечающий на два вопроса, которые человек задаёт чаще всего:
+    /// «почему так медленно» и «почему она открыла не то».
+    ///
+    /// До сих пор ответы на них существовали в двух местах, одинаково
+    /// недоступных: в журнале, который человек не читает, и в запуске
+    /// из консоли, который он не откроет. Требовать этого — значит требовать,
+    /// чтобы он стал программистом ради того, чтобы пользоваться программой.
+    ///
+    /// Поэтому программа измеряет себя сама и говорит не «вот числа»,
+    /// а «вот что здесь длиннее всего и вот кнопка».
+    /// </summary>
+    private Control BuildHappeningPage()
+    {
+        var chart = new SpeedChart(() => _host?.Speed.Summary());
+
+        _adviceRow = new AdviceRow(
+            () => _host is null ? null : SpeedAdvice.For(_host.Speed.Summary() ?? default, _store.Current),
+            ApplySpeedFix);
+
+        _heardVerdict = new Label
+        {
+            AutoSize = false,
+            Height = 54,
+            ForeColor = Theme.Warn,
+            Font = Theme.Small,
+            BackColor = Theme.Panel,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var list = new HeardList(() => _host?.Recent.Items() ?? Array.Empty<Heard>());
+
+        var refresh = new System.Windows.Forms.Timer { Interval = 2000 };
+        refresh.Tick += (_, _) =>
+        {
+            if (!_pages.TryGetValue("happening", out var page) || !page.Visible) return;
+
+            var verdict = _host?.Recent.Verdict() ?? "";
+            if (_heardVerdict.Text != verdict) _heardVerdict.Text = verdict;
+        };
+        refresh.Start();
+
+        // Таймер — не элемент управления, и сам он не умрёт вместе с окном.
+        Disposed += (_, _) => { try { refresh.Stop(); refresh.Dispose(); } catch { } };
+
+        return Stack(
+            new SectionTitle("Сколько вы ждёте",
+                "Программа замеряет саму себя. Числа появляются по мере того, как вы ей пользуетесь, " +
+                "и нигде не сохраняются."),
+            chart,
+            _adviceRow,
+            new SectionTitle("Что я услышала",
+                "Последние фразы и что с каждой стало. Сюда стоит смотреть, когда открылось не то: " +
+                "видно, расслышала ли я слово, разобрала ли команду и нашла ли программу."),
+            _heardVerdict,
+            list);
+    }
+
+    /// <summary>
+    /// Применяет то, что программа сама себе посоветовала.
+    ///
+    /// Сохраняется сразу и на диск: человек нажал кнопку в разделе, где нет
+    /// ни одного ползунка, и требовать от него после этого нажать ещё
+    /// «Применить» внизу — значит устроить ловушку.
+    /// </summary>
+    private void ApplySpeedFix(SpeedAdvice advice)
+    {
+        try
+        {
+            var done = advice.Apply(_store.Current);
+            if (done.Length == 0) return;
+
+            _store.Save();
+
+            _config = _store.Current;
+            LoadFromConfig();
+
+            _onApply(_store.Current);
+            _adviceRow?.Refresh();
+
+            SetNotice("Сохранено: " + done);
+            Log.Info($"скорость: применено «{advice.FixLabel}» — {done}", "ui");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("совет по скорости не применился", ex, "ui");
+            SetNotice("Не вышло применить — подробности в журнале");
+        }
     }
 
     private Control BuildMicrophonePage()
@@ -449,7 +546,10 @@ public sealed class SettingsWindow : Form
         _earlyProbe = new ToggleSwitch();
         _adaptiveContext = new ToggleSwitch();
         _fastDecoding = new ToggleSwitch();
-        _probeAfterMs = new SliderField { Minimum = 400, Maximum = 2000, Step = 50, Format = v => $"{v:0} мс" };
+        // Нижняя граница ниже значения по умолчанию намеренно: ползунок,
+        // не дотягивающийся до текущей настройки, — это ползунок, который
+        // при первом же «Применить» её испортит.
+        _probeAfterMs = new SliderField { Minimum = 250, Maximum = 2000, Step = 50, Format = v => $"{v:0} мс" };
 
         return Stack(
             new SectionTitle("Распознавание речи", "Всё считается на этом компьютере. В сеть уходит только загрузка самой модели, один раз."),

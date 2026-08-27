@@ -186,6 +186,26 @@ public sealed class ConfigStore : IDisposable
         c.Behavior.MatchThreshold = Math.Clamp(c.Behavior.MatchThreshold, 0.3, 0.95);
         c.Behavior.ArmedSeconds = Math.Clamp(c.Behavior.ArmedSeconds, 0, 60);
         c.Behavior.ReindexMinutes = Math.Clamp(c.Behavior.ReindexMinutes, 1, 1440);
+        c.Behavior.FollowUpSeconds = Math.Clamp(c.Behavior.FollowUpSeconds, 0, 120);
+
+        // Ранняя проверка имени. Ноль или отрицательное здесь означало бы
+        // проверку на пустом звуке в бесконечном цикле — файл правят руками,
+        // и опечатка в нём не должна превращаться в загруженный процессор.
+        c.Speech.ProbeAfterMs = Math.Clamp(c.Speech.ProbeAfterMs, 150, 3000);
+        c.Speech.ProbeIntervalMs = Math.Clamp(c.Speech.ProbeIntervalMs, 80, 2000);
+        c.Speech.ProbeWindowMs = Math.Clamp(c.Speech.ProbeWindowMs, 400, 6000);
+        c.Speech.Threads = Math.Clamp(c.Speech.Threads, 0, 64);
+
+        c.Voice.Rate = Math.Clamp(c.Voice.Rate, 0.5, 2.0);
+        c.Voice.Volume = Math.Clamp(c.Voice.Volume, 0.0, 1.0);
+
+        c.Brain.MaxTokens = Math.Clamp(c.Brain.MaxTokens, 64, 8000);
+        c.Brain.HistoryTurns = Math.Clamp(c.Brain.HistoryTurns, 0, 100);
+        c.Brain.FollowUpSeconds = Math.Clamp(c.Brain.FollowUpSeconds, 0, 120);
+
+        c.Learning.MaxPromptTerms = Math.Clamp(c.Learning.MaxPromptTerms, 0, 200);
+        c.Learning.WakeVariantThreshold = Math.Clamp(c.Learning.WakeVariantThreshold, 1, 50);
+        c.Learning.MaxBoost = Math.Clamp(c.Learning.MaxBoost, 0.0, 0.5);
     }
 
     public void Dispose()

@@ -144,25 +144,59 @@ public static class MediaSessions
 
     // ---- Внутреннее ---------------------------------------------------------
 
+    /// <summary>
+    /// Управляющий списком сеансов. Живёт один на всю программу.
+    ///
+    /// Это не преждевременная оптимизация, а исправление настоящей задержки.
+    /// Запрос управляющего у системы стоит десятки миллисекунд и ждёт до
+    /// секунды с лишним, а на одну команду «пауза» он запрашивался трижды:
+    /// поиск играющего сеанса, поиск приостановленного, само действие.
+    /// Объект при этом долгоживущий — Windows отдаёт один и тот же список,
+    /// и держать его незачем было только по невнимательности.
+    /// </summary>
+    private static GlobalSystemMediaTransportControlsSessionManager? _manager;
+
+    private static readonly object ManagerLock = new();
+
     private static GlobalSystemMediaTransportControlsSessionManager? Manager()
     {
-        try
+        var cached = Volatile.Read(ref _manager);
+        if (cached is not null) return cached;
+
+        lock (ManagerLock)
         {
-            var task = GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask();
-            return task.Wait(Timeout) ? task.Result : null;
+            if (_manager is not null) return _manager;
+
+            try
+            {
+                var task = GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask();
+                if (!task.Wait(Timeout)) return null;
+
+                Volatile.Write(ref _manager, task.Result);
+                return _manager;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"список сеансов воспроизведения недоступен: {ex.Message}", "media");
+                return null;
+            }
         }
-        catch (Exception ex)
-        {
-            Log.Debug($"список сеансов воспроизведения недоступен: {ex.Message}", "media");
-            return null;
-        }
+    }
+
+    /// <summary>
+    /// Забыть управляющего. Зовётся, когда он перестал отвечать: объект
+    /// долгоживущий, но не вечный — сеанс пользователя может смениться.
+    /// </summary>
+    private static void ForgetManager()
+    {
+        lock (ManagerLock) _manager = null;
     }
 
     /// <summary>Сеанс, на который смотрит система, — обычно последний активный.</summary>
     private static GlobalSystemMediaTransportControlsSession? Active()
     {
         try { return Manager()?.GetCurrentSession(); }
-        catch { return null; }
+        catch { ForgetManager(); return null; }
     }
 
     /// <summary>
@@ -189,6 +223,9 @@ public static class MediaSessions
         }
         catch (Exception ex)
         {
+            // Управляющий мог протухнуть вместе с сеансом пользователя —
+            // тогда следующая команда возьмёт свежего.
+            ForgetManager();
             Log.Debug($"обход сеансов воспроизведения сорвался: {ex.Message}", "media");
         }
 
