@@ -126,6 +126,15 @@ public static class Numbers
             return TimeSpan.FromMinutes(value.Value);
         }
 
+        // Числа нет вовсе — но «через час» и «напомни через минуту» люди
+        // говорят чаще, чем «через один час». Единица без числа означает одну.
+        foreach (var token in tokens)
+        {
+            if (IsHours(token)) return TimeSpan.FromHours(1);
+            if (IsMinutes(token)) return TimeSpan.FromMinutes(1);
+            if (IsSeconds(token)) return TimeSpan.FromSeconds(1);
+        }
+
         return null;
     }
 
@@ -134,4 +143,8 @@ public static class Numbers
 
     private static bool IsHours(string unit)
         => unit is "час" or "часа" or "часов" or "часу" or "hour" or "hours";
+
+    private static bool IsMinutes(string unit)
+        => unit is "минуту" or "минута" or "минуты" or "минут" or "минутку" or "мин"
+                or "minute" or "minutes";
 }

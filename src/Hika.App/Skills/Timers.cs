@@ -20,7 +20,15 @@ public sealed class Timers : IDisposable
 
     public int Count { get { lock (_lock) return _running.Count; } }
 
-    public SkillResult Start(TimeSpan delay)
+    /// <param name="note">
+    /// О чём напомнить. Пусто — обычный таймер.
+    ///
+    /// Разница существеннее, чем кажется. «Время вышло» через двадцать минут
+    /// после того, как человек отвлёкся, — это загадка, а не напоминание:
+    /// он честно не помнит, о чём просил, и вспоминать будет дольше, чем
+    /// заняло бы дело.
+    /// </param>
+    public SkillResult Start(TimeSpan delay, string note = "")
     {
         if (delay < TimeSpan.FromSeconds(5)) return SkillResult.Fail("слишком короткий срок");
         if (delay > TimeSpan.FromHours(24)) return SkillResult.Fail("слишком долгий срок");
@@ -38,7 +46,9 @@ public sealed class Timers : IDisposable
 
                 try { timer?.Dispose(); } catch { }
 
-                var message = $"Таймер на {Describe(delay)} — время вышло.";
+                var message = string.IsNullOrWhiteSpace(note)
+                    ? $"Таймер на {Describe(delay)} — время вышло."
+                    : $"Напоминаю: {note}.";
                 Log.Info(message, "timer");
 
                 try { Fired?.Invoke(message); }
@@ -47,7 +57,9 @@ public sealed class Timers : IDisposable
 
             lock (_lock) _running.Add(timer);
 
-            var description = $"таймер на {Describe(delay)}";
+            var description = string.IsNullOrWhiteSpace(note)
+                ? $"таймер на {Describe(delay)}"
+                : $"напомню через {Describe(delay)}: {note}";
             Log.Info(description, "timer");
             return SkillResult.Ok(description);
         }

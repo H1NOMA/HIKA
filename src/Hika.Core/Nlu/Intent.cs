@@ -236,6 +236,16 @@ public sealed record Intent(IntentKind Kind, string Argument = "", double Confid
     /// </summary>
     public bool ExplicitVerb { get; init; }
 
+    /// <summary>
+    /// Пояснение к команде, если оно есть. Пока нужно одному напоминанию:
+    /// «напомни через двадцать минут выключить духовку» — двадцать минут
+    /// лежат в аргументе, а духовка здесь.
+    ///
+    /// Без этого напоминание сообщает, что время вышло, и молчит о том,
+    /// зачем его заводили, — то есть делает ровно половину работы.
+    /// </summary>
+    public string Note { get; init; } = "";
+
     public bool IsActionable => Kind != IntentKind.None;
 
     public override string ToString()

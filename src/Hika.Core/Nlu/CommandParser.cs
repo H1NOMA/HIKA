@@ -498,6 +498,41 @@ public static class CommandParser
         "громкость", "громкости", "громкостью", "звук", "звука", "volume",
     };
 
+    /// <summary>
+    /// Слова, которые в напоминании не значат ничего: сама просьба, число,
+    /// единица времени и связки вокруг них.
+    /// </summary>
+    private static readonly HashSet<string> ReminderNoise = new(StringComparer.Ordinal)
+    {
+        "таймер", "таймере", "напомни", "напоминание", "напомнить", "будильник",
+        "засеки", "засечь", "поставь", "постановить", "заведи", "через", "на",
+        "чтобы", "что", "о", "том", "надо", "нужно", "мне", "меня",
+        "секунду", "секунды", "секунд", "секунда", "сек",
+        "минуту", "минуты", "минут", "минута", "мин",
+        "час", "часа", "часов", "часу",
+        "полчаса", "полминуты", "полминутки",
+        "timer", "remind", "me", "in", "to",
+    };
+
+    /// <summary>
+    /// О чём напомнить — всё, что осталось от фразы, когда убрали просьбу,
+    /// число и единицу времени.
+    ///
+    /// «Напомни через двадцать минут выключить духовку» -> «выключить духовку».
+    /// Пусто, если ничего не осталось: обычный таймер без повода.
+    /// </summary>
+    private static string ReminderNote(string[] tokens)
+    {
+        var words = tokens
+            .Where(t => !ReminderNoise.Contains(t))
+            .Where(t => !Numbers.IsNumber(t))
+            .ToArray();
+
+        // Одно случайное слово поводом не считаем: «поставь таймер пять» и так
+        // разберётся, а «таймер» с прилипшим паразитом напоминанием не станет.
+        return words.Length == 0 ? "" : string.Join(' ', words);
+    }
+
     /// <summary>Глаголы перемотки. Нужны там, где внутри фразы стоит число.</summary>
     private static readonly HashSet<string> SeekVerbs = new(StringComparer.Ordinal)
     {
@@ -630,8 +665,14 @@ public static class CommandParser
             var duration = Numbers.Duration(tokens);
             if (duration is { TotalSeconds: >= 5 and <= 24 * 3600 })
             {
-                Log.Debug($"таймер на {duration}", "nlu");
-                return new Intent(IntentKind.Timer, ((int)duration.Value.TotalSeconds).ToString());
+                var note = ReminderNote(tokens);
+
+                Log.Debug($"таймер на {duration}" + (note.Length > 0 ? $": {note}" : ""), "nlu");
+
+                return new Intent(IntentKind.Timer, ((int)duration.Value.TotalSeconds).ToString())
+                {
+                    Note = note,
+                };
             }
         }
 

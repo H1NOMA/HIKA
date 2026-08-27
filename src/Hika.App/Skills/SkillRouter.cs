@@ -166,7 +166,7 @@ public sealed class SkillRouter
                 IntentKind.BrightnessDown => Brightness.Step(-10),
                 IntentKind.BrightnessSet => Brightness.Set(Number(intent.Argument, 60)),
 
-                IntentKind.Timer => _timers.Start(TimeSpan.FromSeconds(Number(intent.Argument, 300))),
+                IntentKind.Timer => _timers.Start(TimeSpan.FromSeconds(Number(intent.Argument, 300)), intent.Note),
                 IntentKind.CancelTimers => _timers.CancelAll(),
 
                 _ => SkillResult.Fail("команда не распознана"),
