@@ -21,6 +21,9 @@ public class DictationTests
     [InlineData("записывай за мной")]
     [InlineData("печатай за мной")]
     [InlineData("давай печатай всё")]
+    [InlineData("напечатай за мной")]
+    [InlineData("пиши за мной")]
+    [InlineData("набирай под диктовку")]
     public void ДиктовкаНачинаетсяРазнымиСловами(string text)
     {
         Assert.Equal(IntentKind.DictationStart, CommandParser.Parse(text).Kind);
