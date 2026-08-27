@@ -39,6 +39,19 @@ public static class PlayerKeys
     };
 
     /// <summary>
+    /// Плееры, у которых нечего перематывать стрелками: там звук, а не видео.
+    ///
+    /// Список нужен ровно для того, чтобы не поднимать их окно поверх работы
+    /// человека. Команда «перемотай» при играющей музыке — почти всегда
+    /// оговорка или обращение к видео, которого сейчас нет.
+    /// </summary>
+    private static readonly string[] AudioOnly =
+    {
+        "Spotify", "Apple Music", "iTunes", "AIMP", "foobar2000", "Winamp",
+        "Яндекс.Музыка", "Яндекс Музыка", "Музыка", "Медиаплеер",
+    };
+
+    /// <summary>
     /// Отправляет сочетание тому, кто показывает видео.
     /// </summary>
     public static SkillResult Send(string description, params ushort[] keys)
@@ -92,6 +105,16 @@ public static class PlayerKeys
         {
             Log.Debug($"впереди {(foreground.Length == 0 ? "неизвестно что" : foreground)}, " +
                       "и ничего не играет — клавишу отправлять некому", "media");
+            return null;
+        }
+
+        // Играет музыка, а не видео. Поднимать её окно ради стрелки
+        // бессмысленно вдвойне: перемотки в музыкальных плеерах на стрелках
+        // нет, зато человек, который в это время печатал, лишится того, что
+        // печатал. Отказ здесь полезнее попытки.
+        if (AudioOnly.Any(a => hint.Contains(a, StringComparison.OrdinalIgnoreCase)))
+        {
+            Log.Info($"играет {hint} — это музыка, а не видео; фокус не трогаю", "media");
             return null;
         }
 
