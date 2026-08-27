@@ -191,5 +191,8 @@ public sealed record SpeedAdvice(string Verdict, string Detail, SpeedFix Fix, st
 
     /// <summary>Миллисекунды так, как их произносит человек.</summary>
     public static string Text(int ms)
-        => ms >= 1000 ? $"{ms / 1000.0:0.0} с".Replace('.', ',') : $"{ms} мс";
+        => ms >= 1000
+            ? (ms / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                .Replace('.', ',') + " с"
+            : $"{ms} мс";
 }

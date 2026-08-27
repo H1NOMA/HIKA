@@ -110,14 +110,20 @@ public static class Dictation
     /// диктовки без исключения, и лечится это только тем, что человек
     /// об этом знает.
     /// </summary>
-    public static string Punctuate(string text)
+    /// <param name="startsSentence">
+    /// Начинается ли с этой фразы новое предложение. Важно потому, что
+    /// диктовка идёт кусками: человек говорит «я пошёл в магазин», молчит,
+    /// говорит «и купил хлеба». Распознавание видит два отдельных куска
+    /// и каждый начинает с заглавной — а это одно предложение.
+    /// </param>
+    public static string Punctuate(string text, bool startsSentence = true)
     {
         if (string.IsNullOrWhiteSpace(text)) return "";
 
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         var result = new System.Text.StringBuilder(text.Length + 8);
 
-        var capitalizeNext = true;
+        var capitalizeNext = startsSentence;
 
         for (int i = 0; i < words.Length; i++)
         {
@@ -146,6 +152,13 @@ public static class Dictation
             if (capitalizeNext && char.IsLower(word[0]))
             {
                 result.Append(char.ToUpperInvariant(word[0])).Append(word.AsSpan(1));
+            }
+            else if (!capitalizeNext && result.Length == 0 && char.IsUpper(word[0]) && !AllCaps(word))
+            {
+                // Предложение продолжается, а распознавание всё равно начало
+                // кусок с заглавной — оно не знает, что было сказано минуту
+                // назад. Аббревиатуры при этом не трогаем.
+                result.Append(char.ToLowerInvariant(word[0])).Append(word.AsSpan(1));
             }
             else
             {
@@ -190,4 +203,34 @@ public static class Dictation
 
     /// <summary>Слово так, как оно пойдёт в текст.</summary>
     private static string Clean(string word) => word.Trim();
+
+    /// <summary>Слово написано целиком заглавными — аббревиатура, её не трогаем.</summary>
+    private static bool AllCaps(string word)
+    {
+        var letters = 0;
+
+        foreach (var ch in word)
+        {
+            if (!char.IsLetter(ch)) continue;
+            if (char.IsLower(ch)) return false;
+            letters++;
+        }
+
+        return letters > 1;
+    }
+
+    /// <summary>Кончилось ли набранное концом предложения.</summary>
+    public static bool EndsSentence(string typed)
+    {
+        for (int i = typed.Length - 1; i >= 0; i--)
+        {
+            var ch = typed[i];
+            if (char.IsWhiteSpace(ch) && ch != '\n') continue;
+
+            return Sentence.Contains(ch);
+        }
+
+        // Пустое означает, что ничего ещё не набрано, — то есть начало.
+        return true;
+    }
 }

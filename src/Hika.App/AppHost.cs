@@ -1030,6 +1030,7 @@ public sealed class AppHost : IDisposable
 
     private bool _dictating;
     private bool _dictationNeedsSpace;
+    private bool _dictationNewSentence = true;
     private DateTime _dictationUntil = DateTime.MinValue;
 
     /// <summary>
@@ -1049,6 +1050,7 @@ public sealed class AppHost : IDisposable
     {
         _dictating = true;
         _dictationNeedsSpace = false;
+        _dictationNewSentence = true;
 
         Log.Info("диктовка началась", "host");
         ResumeDictation();
@@ -1096,7 +1098,7 @@ public sealed class AppHost : IDisposable
             return;
         }
 
-        var typed = Dictation.Punctuate(text);
+        var typed = Dictation.Punctuate(text, _dictationNewSentence);
 
         if (typed.Length == 0)
         {
@@ -1110,6 +1112,7 @@ public sealed class AppHost : IDisposable
         var result = SystemActions.TypeText(payload);
 
         _dictationNeedsSpace = !typed.EndsWith('\n');
+        _dictationNewSentence = Dictation.EndsSentence(typed);
 
         Log.Info($"надиктовано: «{typed}»", "host");
         Note(text, "диктовка", typed, result.Success ? HeardOutcome.Done : HeardOutcome.Failed, 0, stopwatch);

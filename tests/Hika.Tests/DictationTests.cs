@@ -137,6 +137,33 @@ public class DictationTests
         Assert.Equal("", Dictation.Punctuate("   "));
     }
 
+    [Fact]
+    public void ПродолжениеПредложенияНеНачинаетсяСЗаглавной()
+    {
+        // Диктовка идёт кусками: человек говорит «я пошёл в магазин», молчит,
+        // говорит «и купил хлеба». Распознавание видит два отдельных куска
+        // и каждый начинает с заглавной — а это одно предложение.
+        Assert.Equal("и купил хлеба", Dictation.Punctuate("И купил хлеба", startsSentence: false));
+        Assert.Equal("И купил хлеба", Dictation.Punctuate("и купил хлеба", startsSentence: true));
+    }
+
+    [Fact]
+    public void АббревиатураОстаётсяАббревиатурой()
+    {
+        Assert.Equal("МЧС приехало", Dictation.Punctuate("МЧС приехало", startsSentence: false));
+    }
+
+    [Theory]
+    [InlineData("Это конец.", true)]
+    [InlineData("Вопрос?", true)]
+    [InlineData("а дальше", false)]
+    [InlineData("Привет,", false)]
+    [InlineData("", true)]
+    public void КонецПредложенияВиденПоПоследнемуЗнаку(string typed, bool ends)
+    {
+        Assert.Equal(ends, Dictation.EndsSentence(typed));
+    }
+
     [Theory]
     // Команды не должны становиться диктовкой, а диктовка — командами.
     [InlineData("открой стим", IntentKind.Launch)]
