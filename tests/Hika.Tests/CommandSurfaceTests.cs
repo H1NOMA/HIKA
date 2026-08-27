@@ -96,6 +96,24 @@ public class CommandSurfaceTests
     [InlineData("закрой окно", IntentKind.CloseWindow)]
     [InlineData("предыдущая вкладка", IntentKind.PreviousTab)]
     [InlineData("предыдущий трек", IntentKind.MediaPrevious)]
+
+    // «Сверни все окна» и «покажи все окна» — противоположные просьбы,
+    // различающиеся ровно глаголом. Пока он был необязательным, вторая
+    // сворачивала всё открытое, то есть делала обратное сказанному.
+    [InlineData("сверни все окна", IntentKind.ShowDesktop)]
+    [InlineData("покажи все окна", IntentKind.TaskView)]
+    [InlineData("все окна", IntentKind.TaskView)]
+
+    // «Назад» — шаг назад в браузере. Отменять чужую работу по случайно
+    // услышанному слову программа права не имеет.
+    [InlineData("назад", IntentKind.BrowserBack)]
+    [InlineData("отмени", IntentKind.Undo)]
+    [InlineData("отмени действие", IntentKind.Undo)]
+
+    [InlineData("закрой рабочий стол", IntentKind.CloseDesktop)]
+    [InlineData("создай новый рабочий стол", IntentKind.NewDesktop)]
+    [InlineData("плей пауза", IntentKind.MediaPlayPause)]
+    [InlineData("пауза", IntentKind.MediaPause)]
     public void СоседниеКомандыНеПутаются(string text, IntentKind expected)
     {
         Assert.Equal(expected, CommandParser.Parse(text).Kind);
