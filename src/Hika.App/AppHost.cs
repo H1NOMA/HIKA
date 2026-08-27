@@ -1207,6 +1207,29 @@ public sealed class AppHost : IDisposable
 
         if (intent.Kind is IntentKind.None or IntentKind.Search) return null;
 
+        // Команды, которые без имени не выполняются никогда.
+        //
+        // Общее у них одно: случайное срабатывание стоит дорого и не
+        // отменяется. Закрытое окно уносит несохранённое, сон обрывает всё
+        // разом, а диктовка, начавшаяся от слова, сказанного в сторону,
+        // примется набирать разговор в то окно, которое было впереди.
+        //
+        // Восемь секунд после команды — это ровно то время, когда человек
+        // разговаривает с кем-то ещё, повернувшись от компьютера. Просить
+        // имя для таких команд — не строгость, а единственный способ
+        // не превратить окно продолжения в ловушку.
+        if (intent.Kind is IntentKind.DictationStart
+                        or IntentKind.CloseWindow
+                        or IntentKind.CloseTab
+                        or IntentKind.CloseDesktop
+                        or IntentKind.Sleep
+                        or IntentKind.LockWorkstation
+                        or IntentKind.TypeText)
+        {
+            Log.Debug($"{intent.Kind} без имени не выполняю — слишком дорогая ошибка", "host");
+            return null;
+        }
+
         if (intent.Kind is IntentKind.Launch or IntentKind.FocusWindow)
         {
             // Порог выше обычного: без имени цена ошибки — программа,
