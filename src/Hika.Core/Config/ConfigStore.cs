@@ -26,6 +26,15 @@ public sealed class ConfigStore : IDisposable
 
     public HikaConfig Current { get; private set; } = new();
 
+    /// <summary>
+    /// Файла настроек не было — значит, это первый запуск.
+    ///
+    /// Нужно ровно для одного: показать человеку, что она умеет, не дожидаясь,
+    /// пока он догадается спросить. Тот, кто ещё не знает о программе ничего,
+    /// не догадается спросить её голосом — он просто закроет её через минуту.
+    /// </summary>
+    public bool FirstRun { get; private set; }
+
     /// <summary>Срабатывает после успешного перечитывания файла.</summary>
     public event Action<HikaConfig>? Changed;
 
@@ -45,6 +54,7 @@ public sealed class ConfigStore : IDisposable
                 if (!File.Exists(_path))
                 {
                     Current = new HikaConfig { Version = HikaConfig.CurrentVersion };
+                    FirstRun = true;
                     Save();
                     Log.Info($"создан файл настроек: {_path}", "config");
                 }

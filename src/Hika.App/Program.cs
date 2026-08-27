@@ -396,6 +396,16 @@ internal static class Program
         var started = host.StartAsync().GetAwaiter().GetResult();
         tray.UpdateState(host.State, host.Muted);
 
+        // Первый запуск: показываем, что она умеет, не дожидаясь вопроса.
+        // Человек, который ещё ничего о ней не знает, не догадается спросить
+        // её об этом голосом — он просто закроет её через минуту, так и не
+        // узнав, что она умела.
+        if (store.FirstRun && !launchedByWindows)
+        {
+            try { GetSettings().ShowWindow("help"); }
+            catch (Exception ex) { Log.Error("первое окно не открылось", ex, "ui"); }
+        }
+
         if (started && !launchedByWindows)
         {
             tray.ShowMessage("HIKA работает",
