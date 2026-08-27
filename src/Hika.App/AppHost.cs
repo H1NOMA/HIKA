@@ -1088,7 +1088,18 @@ public sealed class AppHost : IDisposable
         // и мерить в ней нечего.
         _pendingValid = false;
 
-        if (Dictation.IsStop(text))
+        // Останавливать диктовку человек будет так, как привык обращаться:
+        // «Хика, стоп». Имя при этом надо снять — иначе стоп-слово окажется
+        // не всей фразой, а её половиной, и вместо остановки в окно
+        // напечатается «Хика, стоп». Ошибка обиднее многих: человек говорит
+        // всё громче и правильнее, а становится только хуже.
+        var named = _wakeMatcher?.Match(text);
+        var meaningful = named is { Matched: true } ? named.Rest : text;
+
+        // Позвали по имени и замолчали — это тоже «хватит».
+        var calledAndStopped = named is { Matched: true } && string.IsNullOrWhiteSpace(named.Rest);
+
+        if (calledAndStopped || Dictation.IsStop(meaningful))
         {
             StopDictation("сказали «стоп»");
 

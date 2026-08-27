@@ -165,6 +165,18 @@ public class DictationTests
     }
 
     [Theory]
+    // Останавливать диктовку человек будет так, как привык обращаться:
+    // «Хика, стоп». Имя снимается разбором обращения, а сюда приходит остаток —
+    // и он обязан узнаваться.
+    [InlineData("стоп")]
+    [InlineData("хватит")]
+    [InlineData("хватит диктовать")]
+    public void ОстатокПослеИмениУзнаётсяКакСтоп(string rest)
+    {
+        Assert.True(Dictation.IsStop(rest));
+    }
+
+    [Theory]
     // Команды не должны становиться диктовкой, а диктовка — командами.
     [InlineData("открой стим", IntentKind.Launch)]
     [InlineData("напечатай привет", IntentKind.TypeText)]
