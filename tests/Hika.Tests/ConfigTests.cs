@@ -77,3 +77,57 @@ public class ConfigDefaultsTests
         Assert.Contains("\"Learning\"", json);
     }
 }
+
+/// <summary>
+/// Файл настроек человек открывает и правит руками — я сама его об этом прошу.
+/// А раз так, в нём заводится то, чего в коде нет: строка на будущее, ключ
+/// из более новой сборки, пометка себе. Первое же «Применить» стирало всё
+/// это без следа и без слова.
+/// </summary>
+public class ЧужиеКлючиВНастройкахTests
+{
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    /// <summary>Записать и прочитать обратно — как это делает ConfigStore.</summary>
+    private static HikaConfig Кругооборот(string json)
+    {
+        var первый = JsonSerializer.Deserialize<HikaConfig>(json, Options)!;
+        return JsonSerializer.Deserialize<HikaConfig>(JsonSerializer.Serialize(первый, Options), Options)!;
+    }
+
+    [Fact]
+    public void ЧужойКлючВКорнеПереживаетСохранение()
+    {
+        var config = Кругооборот("""
+            { "persona": "hika", "мояПометка": "не трогать громкость" }
+            """);
+
+        Assert.NotNull(config.Unknown);
+        Assert.Equal("не трогать громкость", config.Unknown!["мояПометка"].GetString());
+    }
+
+    [Fact]
+    public void ЧужойКлючВРазделеПереживаетСохранение()
+    {
+        var config = Кругооборот("""
+            { "audio": { "gain": 2.0, "будущаяНастройка": 42 } }
+            """);
+
+        Assert.Equal(2.0f, config.Audio.Gain);
+        Assert.NotNull(config.Audio.Unknown);
+        Assert.Equal(42, config.Audio.Unknown!["будущаяНастройка"].GetInt32());
+    }
+
+    [Fact]
+    public void СвоиКлючиНеУезжаютВЧужие()
+    {
+        var config = Кругооборот("""{ "audio": { "gain": 2.0 } }""");
+
+        Assert.Null(config.Unknown);
+        Assert.Null(config.Audio.Unknown);
+    }
+}

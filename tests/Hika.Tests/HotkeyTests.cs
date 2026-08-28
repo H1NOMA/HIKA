@@ -91,4 +91,63 @@ public class HotkeyTests
         Assert.True(Hotkey.IsValid(defaults.ListenHotkey), $"«{defaults.ListenHotkey}» не разбирается");
         Assert.True(Hotkey.IsValid(defaults.MuteHotkey), $"«{defaults.MuteHotkey}» не разбирается");
     }
+    /// <summary>
+    /// Знаки основного ряда и цифрового блока — разные клавиши.
+    ///
+    /// Пока «Плюс» и «Add» означали одно и то же, назначенное на «+» в верхнем
+    /// ряду сочетание не срабатывало никогда: система ждала нажатия на цифровом
+    /// блоке, а человек жал там, где нарисован плюс.
+    /// </summary>
+    [Theory]
+    [InlineData("Ctrl+Alt+Плюс", 0xBB)]
+    [InlineData("Ctrl+Alt+Минус", 0xBD)]
+    [InlineData("Ctrl+Alt+Запятая", 0xBC)]
+    [InlineData("Ctrl+Alt+Точка", 0xBE)]
+    [InlineData("Ctrl+Alt+Слэш", 0xBF)]
+    [InlineData("Ctrl+Alt+ТочкаЗапятая", 0xBA)]
+    [InlineData("Ctrl+Alt+СкобкаЛевая", 0xDB)]
+    [InlineData("Ctrl+Alt+СкобкаПравая", 0xDD)]
+    [InlineData("Ctrl+Alt+ОбратныйСлэш", 0xDC)]
+    [InlineData("Ctrl+Alt+Кавычка", 0xDE)]
+    public void ЗнакиОсновногоРядаНеПутаютсяСЦифровымБлоком(string text, uint key)
+    {
+        var hotkey = Hotkey.Parse(text);
+
+        Assert.NotNull(hotkey);
+        Assert.Equal(key, hotkey!.Key);
+    }
+
+    [Theory]
+    [InlineData("Ctrl+Add", 0x6B)]
+    [InlineData("Ctrl+Subtract", 0x6D)]
+    [InlineData("Ctrl+Plus", 0x6B)]
+    public void ЦифровойБлокОсталсяКакБыл(string text, uint key)
+        => Assert.Equal(key, Hotkey.Parse(text)!.Key);
+
+    /// <summary>
+    /// Показанное человеку сочетание — это же и есть запись в настройках.
+    /// Значит, оно обязано прочитаться обратно в то же самое, иначе первое же
+    /// сохранение превратит рабочую клавишу в мусор.
+    /// </summary>
+    [Theory]
+    [InlineData("Ctrl+Alt+Плюс")]
+    [InlineData("Ctrl+Alt+Минус")]
+    [InlineData("Ctrl+Alt+ТочкаЗапятая")]
+    [InlineData("Ctrl+Alt+СкобкаЛевая")]
+    [InlineData("Ctrl+Alt+ОбратныйСлэш")]
+    [InlineData("Ctrl+Alt+Space")]
+    [InlineData("Shift+F5")]
+    [InlineData("Win+K")]
+    public void ЗаписьПереживаетКругооборот(string text)
+    {
+        var once = Hotkey.Parse(text);
+        Assert.NotNull(once);
+
+        var twice = Hotkey.Parse(once!.Text);
+        Assert.NotNull(twice);
+
+        Assert.Equal(once.Text, twice!.Text);
+        Assert.Equal(once.Key, twice.Key);
+        Assert.Equal(once.Modifiers, twice.Modifiers);
+    }
 }

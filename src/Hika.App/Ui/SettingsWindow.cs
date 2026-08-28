@@ -27,7 +27,17 @@ public sealed class SettingsWindow : Form
     private readonly Action<HikaConfig> _onApply;
     private readonly Action _onLiveListen;
     private readonly Action _onDiagnostics;
-    private readonly Action _onTestOverlay;
+    private readonly Func<string> _onTestOverlay;
+
+    /// <summary>
+    /// Перезапустить программу. Нужно ради честности: модель распознавания,
+    /// микрофон и права подхватываются только при старте, и до сих пор окно
+    /// сообщало об этом фразой «применятся после перезапуска», не давая
+    /// никакого способа этот перезапуск сделать. Человек, которому программа
+    /// сама только что посоветовала сменить модель, оставался с советом,
+    /// выполнить который может лишь тот, кто знает про значок в трее.
+    /// </summary>
+    private readonly Action _onRestart;
     private readonly Func<(string Status, string Microphone, string Recognizer, int CatalogSize)> _statusSource;
 
     /// <summary>
@@ -43,6 +53,22 @@ public sealed class SettingsWindow : Form
     private readonly Panel _content = new();
     private readonly Dictionary<string, Control> _pages = new();
     private readonly Label _notice = new();
+    private readonly FlatButton _restart = new("Перезапустить");
+
+    private System.Windows.Forms.Timer _watchEdits = null!;
+    private Action? _layoutFooter;
+
+    /// <summary>
+    /// До какого момента сообщение внизу не трогать.
+    ///
+    /// Иначе следящий за правками таймер затирал бы через полсекунды всё,
+    /// что окно только что сказало по существу: и «ключ сохранён»,
+    /// и «файл настроек не записался». Причина неудачи должна дожить
+    /// до того, как её прочитают.
+    /// </summary>
+    private DateTime _noticeHold = DateTime.MinValue;
+
+    private const string UnsavedNotice = "Есть несохранённые изменения — нажмите «Применить».";
 
     // ---- Элементы, значения которых нужно читать при сохранении ----
     private readonly List<PersonaCard> _personaCards = new();
@@ -133,9 +159,11 @@ public sealed class SettingsWindow : Form
         Action<HikaConfig> onApply,
         Action onLiveListen,
         Action onDiagnostics,
-        Action onTestOverlay,
+        Func<string> onTestOverlay,
+        Action onRestart,
         AppHost? host = null)
     {
+        _onRestart = onRestart;
         _store = store;
         _levelSource = levelSource;
         _statusSource = statusSource;
@@ -264,21 +292,45 @@ public sealed class SettingsWindow : Form
         var apply = new FlatButton("Применить", primary: true) { Width = 130 };
         apply.Click += (_, _) => Apply();
 
+        _restart.Width = 150;
+        _restart.Visible = false;
+        _restart.Click += (_, _) => AskAndRestart();
+
         _notice.AutoSize = false;
         _notice.ForeColor = Theme.TextFaint;
         _notice.Font = Theme.Small;
         _notice.TextAlign = ContentAlignment.MiddleRight;
         _notice.BackColor = Color.Transparent;
 
-        footer.Controls.AddRange(new Control[] { listen, diagnose, apply, _notice });
+        footer.Controls.AddRange(new Control[] { listen, diagnose, apply, _restart, _notice });
 
-        footer.Resize += (_, _) =>
+        // Раскладка вынесена в поле, потому что зовётся не только на изменение
+        // размера: кнопка перезапуска появляется и исчезает, а размер полосы
+        // при этом не меняется — то есть Resize не сработает.
+        _layoutFooter = () =>
         {
             listen.Location = new Point(24, (footer.Height - listen.Height) / 2);
             diagnose.Location = new Point(listen.Right + 10, listen.Top);
             apply.Location = new Point(footer.Width - apply.Width - 24, listen.Top);
-            _notice.SetBounds(diagnose.Right + 16, 0, Math.Max(60, apply.Left - diagnose.Right - 32), footer.Height);
+            _restart.Location = new Point(apply.Left - _restart.Width - 10, listen.Top);
+
+            var left = _restart.Visible ? _restart.Left : apply.Left;
+            _notice.SetBounds(diagnose.Right + 16, 0, Math.Max(60, left - diagnose.Right - 32), footer.Height);
         };
+
+        footer.Resize += (_, _) => _layoutFooter();
+
+        // Несохранённые правки видно всё время, пока они есть.
+        //
+        // Раньше единственным способом узнать, что «Применить» ещё не нажато,
+        // было вспомнить об этом самому. Настройка, которую покрутили и ушли,
+        // молча возвращалась к прежней, и человек оставался в уверенности,
+        // что она просто не работает.
+        _watchEdits = new System.Windows.Forms.Timer { Interval = 700 };
+        _watchEdits.Tick += (_, _) => ShowEditState();
+        _watchEdits.Start();
+
+        Disposed += (_, _) => { try { _watchEdits.Stop(); _watchEdits.Dispose(); } catch { } };
 
         footer.Paint += (_, e) =>
         {
@@ -473,23 +525,15 @@ public sealed class SettingsWindow : Form
     {
         try
         {
-            var done = advice.Apply(_store.Current);
-            if (done.Length == 0) return;
-
-            if (!_store.Save())
-            {
-                SetNotice("НЕ сохранено: файл настроек не записался");
-                return;
-            }
-
-            _config = _store.Current;
-            LoadFromConfig();
-
-            _onApply(_store.Current);
+            // Через общий путь сохранения: он сначала соберёт то, что человек
+            // накрутил на других страницах, и только потом положит совет
+            // сверху. Раньше кнопка писала на диск свою правку поверх живых
+            // настроек, а следом перечитывала поля — и всё несохранённое
+            // исчезало без единого слова.
+            Apply(advice);
             _adviceRow?.Reread();
 
-            SetNotice("Сохранено: " + done);
-            Log.Info($"скорость: применено «{advice.FixLabel}» — {done}", "ui");
+            Log.Info($"скорость: применено «{advice.FixLabel}»", "ui");
         }
         catch (Exception ex)
         {
@@ -643,7 +687,14 @@ public sealed class SettingsWindow : Form
         _excludeCapture = new ToggleSwitch();
 
         var test = new FlatButton("Показать свечение сейчас", primary: true) { Width = 230 };
-        test.Click += (_, _) => _onTestOverlay();
+
+        // Кнопка обязана либо сработать, либо сказать почему. Молчащая
+        // кнопка — та же поломка, только человек винит в ней всю программу.
+        test.Click += (_, _) =>
+        {
+            var problem = _onTestOverlay();
+            SetNotice(problem.Length > 0 ? problem : "Показываю: смотрите на края экрана, это займёт пять секунд.");
+        };
 
         return Stack(
             new SectionTitle("Свечение по краям", "Слабое, пока непонятно, к вам ли обращаются. Разгорается и живёт в такт голосу, когда прозвучало имя."),
@@ -1201,6 +1252,16 @@ public sealed class SettingsWindow : Form
         Section("Обучение", () => LoadLearning(c));
         Section("Поведение", () => LoadBehavior(c));
 
+        // Отметка, с которой дальше сравниваются правки. Снимается последней:
+        // до этого поля ещё заполняются, и снятый раньше снимок означал бы,
+        // что окно считает изменённым то, что само же только что и загрузило.
+        try { _baseline = FieldSnapshot(); }
+        catch (Exception ex)
+        {
+            Log.Warn($"снимок полей не снялся: {ex.Message}", "ui");
+            _baseline = "";
+        }
+
         SetNotice(_failures.Count == 0
             ? ""
             : $"Не открылись разделы: {string.Join(", ", _failures.Distinct())}. Подробности в журнале.");
@@ -1306,22 +1367,98 @@ public sealed class SettingsWindow : Form
         _logLevel.Value = c.Behavior.LogLevel ?? "info";
     }
 
-    private void Apply()
+    /// <summary>
+    /// Переносит содержимое полей в настройки. Ничего больше: ни записи
+    /// на диск, ни правки автозапуска, ни единого действия наружу.
+    ///
+    /// Чистота здесь не эстетика, а условие: тем же самым переносом окно
+    /// проверяет, есть ли несохранённые правки, — на отдельной копии
+    /// настроек, много раз в минуту. Побочное действие внутри означало бы,
+    /// что программа переписывает реестр каждые полсекунды, пока окно
+    /// открыто, просто чтобы понять, изменилось ли что-нибудь.
+    /// </summary>
+    /// <param name="record">
+    /// Запоминать ли сорвавшиеся разделы. При проверке правок — нет: она идёт
+    /// дважды в секунду, и один сбойный раздел за минуту накопил бы шестьдесят
+    /// записей, которые потом высыпались бы в сообщение о сохранении.
+    /// </param>
+    private void CollectInto(HikaConfig c, bool record = true)
+    {
+        // Каждая группа отдельно: сорвавшаяся не должна утащить за собой
+        // сохранение остальных. Половина сохранённых настроек лучше, чем
+        // ни одной, и заметно лучше, чем окно, падающее по кнопке.
+        Run("Личность", () => ApplyPersonaAndWake(c));
+        Run("Микрофон", () => ApplyAudio(c));
+        Run("Распознавание", () => ApplySpeech(c));
+        Run("Свечение", () => ApplyOverlay(c));
+        Run("Голос", () => ApplyVoice(c));
+        Run("Разговор", () => ApplyBrain(c));
+        Run("Обучение", () => ApplyLearning(c));
+        Run("Поведение", () => ApplyBehavior(c));
+
+        void Run(string name, Action action)
+        {
+            if (record) { Section(name, action); return; }
+            try { action(); } catch { /* при проверке правок молча */ }
+        }
+    }
+
+    /// <summary>
+    /// Снимок полей: во что превратятся настройки, если нажать «Применить».
+    ///
+    /// Считается сборкой полей в отдельную копию настроек и сравнением
+    /// строк. Перечислять поля руками нельзя — забытое поле здесь означает
+    /// молча потерянную настройку, а забыть одно из полусотни при очередной
+    /// правке кода это вопрос времени, а не внимательности.
+    /// </summary>
+    private string FieldSnapshot()
+    {
+        var draft = _store.Copy();
+        CollectInto(draft, record: false);
+
+        return System.Text.Json.JsonSerializer.Serialize(draft, SnapshotOptions);
+    }
+
+    /// <summary>
+    /// Каким снимок был сразу после загрузки полей.
+    ///
+    /// Сравниваем именно с ним, а не с содержимым файла. Разница
+    /// принципиальная: файл и поля расходятся и без всякого участия человека —
+    /// микрофон отключили и он пропал из списка, имена пробуждения в файле
+    /// правили руками, лишние пробелы в названии плеера обрезались при чтении.
+    /// Сравнение с файлом объявляло бы всё это «несохранёнными изменениями»
+    /// и спрашивало бы о них при каждом закрытии окна, которое человек
+    /// открыл посмотреть. Сравнение со снимком отвечает ровно на тот вопрос,
+    /// который задан: тронул ли что-нибудь человек.
+    /// </summary>
+    private string _baseline = "";
+
+    private static readonly System.Text.Json.JsonSerializerOptions SnapshotOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <param name="fix">
+    /// Что программа посоветовала себе сама. Применяется поверх собранного
+    /// из полей, а не вместо него: кнопка совета живёт на странице, где нет
+    /// ни одного ползунка, и стирать ею правки, сделанные на других
+    /// страницах, — ровно та ловушка, ради которой её и заводили.
+    /// </param>
+    private void Apply(SpeedAdvice? fix = null)
     {
         var c = _store.Current;
         _failures.Clear();
 
-        // Каждая группа отдельно: сорвавшаяся не должна утащить за собой
-        // сохранение остальных. Половина сохранённых настроек лучше, чем
-        // ни одной, и заметно лучше, чем окно, падающее по кнопке.
-        Section("Личность", () => ApplyPersonaAndWake(c));
-        Section("Микрофон", () => ApplyAudio(c));
-        Section("Распознавание", () => ApplySpeech(c));
-        Section("Свечение", () => ApplyOverlay(c));
-        Section("Голос", () => ApplyVoice(c));
-        Section("Разговор", () => ApplyBrain(c));
-        Section("Обучение", () => ApplyLearning(c));
-        Section("Поведение", () => ApplyBehavior(c));
+        CollectInto(c);
+
+        var fixedUp = "";
+        if (fix is not null) Section("Скорость", () => fixedUp = fix.Apply(c));
+
+        // Автозапуск живёт в реестре, а не в файле настроек, поэтому
+        // применяется отдельно и только по настоящему «Применить».
+        Section("Автозапуск", () => AutostartManager.Apply(_autostart.Checked, _runAsAdmin.Checked));
 
         var saved = _store.Save();
         _config = c;
@@ -1340,19 +1477,30 @@ public sealed class SettingsWindow : Form
 
         // Модель и звуковое устройство подхватываются только при старте:
         // менять их на живом пайплайне — значит рвать поток посреди фразы.
-        var needsRestart = _model.Value != _initialModel
-                           || _device.Value != _initialDevice
-                           || _runAsAdmin.Checked != _initialRunAsAdmin;
+        //
+        // Считается до перечитывания полей: LoadFromConfig переснимает эти же
+        // отметки, и после него сравнивать было бы не с чем.
+        var needsRestart = c.Speech.Model != _initialModel
+                           || c.Audio.Device != _initialDevice
+                           || c.Behavior.RunAsAdmin != _initialRunAsAdmin;
+
+        // Поля пришли в согласие с файлом — переснимаем то, с чем сравниваем.
+        LoadFromConfig();
+
+        _restart.Visible = needsRestart;
+        _layoutFooter?.Invoke();
 
         SetNotice(_failures.Count > 0
             ? $"Сохранено не всё: сорвались разделы {string.Join(", ", _failures.Distinct())}."
-            : needsRestart
-                ? "Сохранено. Модель, микрофон и права применятся после перезапуска HIKA."
-                : "Сохранено — всё уже работает.");
+            : fixedUp.Length > 0
+                ? $"Сохранено: {fixedUp}"
+                : needsRestart
+                    ? "Сохранено. Модель, микрофон и права применятся после перезапуска — кнопка рядом."
+                    : "Сохранено — всё уже работает.");
 
-        _initialModel = _model.Value;
-        _initialDevice = _device.Value;
-        _initialRunAsAdmin = _runAsAdmin.Checked;
+        _initialModel = c.Speech.Model ?? "";
+        _initialDevice = c.Audio.Device ?? "";
+        _initialRunAsAdmin = c.Behavior.RunAsAdmin;
     }
 
     private void ApplyPersonaAndWake(HikaConfig c)
@@ -1456,14 +1604,101 @@ public sealed class SettingsWindow : Form
         c.Behavior.LogLevel = _logLevel.Value;
         c.Behavior.Autostart = _autostart.Checked;
         c.Behavior.RunAsAdmin = _runAsAdmin.Checked;
-
-        AutostartManager.Apply(_autostart.Checked, _runAsAdmin.Checked);
     }
 
     private void SetNotice(string text)
     {
         _notice.Text = text;
-        _notice.ForeColor = text.StartsWith("Сохранено") ? Theme.Good : Theme.TextFaint;
+
+        _notice.ForeColor = text.StartsWith("Сохранено") ? Theme.Good
+            : text.StartsWith("НЕ ") || text.StartsWith("Не ") ? Theme.Warn
+            : text == UnsavedNotice ? Theme.Warn
+            : Theme.TextFaint;
+
+        // Сказанное по существу держится восемь секунд: столько нужно,
+        // чтобы прочитать строку и понять, что делать дальше.
+        if (text.Length > 0 && text != UnsavedNotice) _noticeHold = DateTime.UtcNow.AddSeconds(8);
+    }
+
+    /// <summary>Показывает или снимает пометку о несохранённых правках.</summary>
+    private void ShowEditState()
+    {
+        if (!Visible) return;
+        if (DateTime.UtcNow < _noticeHold) return;
+
+        bool dirty;
+        try { dirty = IsDirty(); }
+        catch { return; }   // раздел не собрался — сравнивать нечего
+
+        if (dirty)
+        {
+            if (_notice.Text != UnsavedNotice) SetNotice(UnsavedNotice);
+        }
+        else if (_notice.Text == UnsavedNotice)
+        {
+            SetNotice("");
+        }
+    }
+
+    /// <summary>Тронул ли человек хоть что-нибудь с тех пор, как окно загрузило поля.</summary>
+    private bool IsDirty() => _baseline.Length > 0 && FieldSnapshot() != _baseline;
+
+    // ---- Закрытие ---------------------------------------------------------
+
+    /// <summary>
+    /// Спрашивает про несохранённые правки. Возвращает false, если человек
+    /// передумал закрывать.
+    ///
+    /// До сих пор окно просто пряталось, унося с собой всё, что в нём
+    /// накрутили. Настройка, изменённая и не применённая, — это не ошибка
+    /// пользователя: полсотни полей и одна кнопка внизу означают, что
+    /// забудут обязательно, и молчать об этом нельзя.
+    /// </summary>
+    private bool ConfirmClose()
+    {
+        try { if (!IsDirty()) return true; }
+        catch { return true; }
+
+        var answer = MessageBox.Show(this,
+            "В настройках есть изменения, которые ещё не применены.\n\nСохранить их?",
+            "HIKA — настройки",
+            MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1);
+
+        switch (answer)
+        {
+            case DialogResult.Yes:
+                Apply();
+                return true;
+
+            case DialogResult.No:
+                // Возвращаем поля к сохранённому: иначе брошенные правки
+                // встретят человека в следующий раз как ни в чём не бывало,
+                // и он решит, что они применены.
+                _config = _store.Current;
+                LoadFromConfig();
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private void AskAndRestart()
+    {
+        var answer = MessageBox.Show(this,
+            "Закрыть и открыть HIKA заново? Это займёт несколько секунд, " +
+            "и всё это время она не будет слышать.",
+            "HIKA — перезапуск",
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+
+        if (answer != DialogResult.OK) return;
+
+        try { _onRestart(); }
+        catch (Exception ex)
+        {
+            Log.Error("перезапуск не вышел", ex, "ui");
+            SetNotice("Не вышло перезапустить. Закройте программу через значок в трее и откройте заново.");
+        }
     }
 
     // ---- Показ и скрытие --------------------------------------------------
@@ -1479,6 +1714,12 @@ public sealed class SettingsWindow : Form
         LoadFromConfig();
         RefreshDevices();
 
+        // Список микрофонов перечитывается после загрузки полей и может
+        // подменить выбранное устройство — например, если микрофон вынули.
+        // Значит, и отметку надо переснять: иначе окно объявит несохранённой
+        // правкой то, что человек не трогал, и спросит об этом при закрытии.
+        try { _baseline = FieldSnapshot(); } catch { _baseline = ""; }
+
         if (!string.IsNullOrEmpty(page) && _pages.ContainsKey(page))
         {
             _nav.Select(page);
@@ -1493,7 +1734,11 @@ public sealed class SettingsWindow : Form
         Activate();
     }
 
-    public void HideWindow() => Hide();
+    public void HideWindow()
+    {
+        if (!ConfirmClose()) return;
+        Hide();
+    }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
@@ -1502,7 +1747,7 @@ public sealed class SettingsWindow : Form
         if (e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
-            Hide();
+            HideWindow();
             return;
         }
 
@@ -1549,7 +1794,9 @@ public sealed class SettingsWindow : Form
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (CloseButton.Contains(e.Location)) { _owner.Hide(); return; }
+            // Close(), а не Hide(): только так закрытие проходит через проверку
+            // несохранённых правок — она живёт в OnFormClosing.
+            if (CloseButton.Contains(e.Location)) { _owner.Close(); return; }
             if (MinimizeButton.Contains(e.Location)) { _owner.WindowState = FormWindowState.Minimized; return; }
 
             _dragging = true;

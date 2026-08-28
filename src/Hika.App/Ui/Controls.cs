@@ -517,8 +517,22 @@ public sealed class HotkeyField : Control
         Keys.Prior => "PageUp",
         Keys.Next => "PageDown",
         Keys.Oemtilde => "Tilde",
-        Keys.Oemplus => "Plus",
-        Keys.OemMinus => "Minus",
+
+        // Знаки основного ряда. Раньше «+» и «−» записывались как Plus
+        // и Minus, а этими словами система называет клавиши цифрового блока.
+        // Человек нажимал знак в верхнем ряду, видел в поле «Ctrl+Alt+Plus»
+        // и потом безуспешно жал то же самое: назначено-то было другое.
+        Keys.Oemplus => "Плюс",
+        Keys.OemMinus => "Минус",
+        Keys.Oemcomma => "Запятая",
+        Keys.OemPeriod => "Точка",
+        Keys.OemQuestion => "Слэш",
+        Keys.OemSemicolon => "ТочкаЗапятая",
+        Keys.OemOpenBrackets => "СкобкаЛевая",
+        Keys.OemCloseBrackets => "СкобкаПравая",
+        Keys.OemPipe => "ОбратныйСлэш",
+        Keys.OemQuotes => "Кавычка",
+
         _ => key.ToString(),
     };
 

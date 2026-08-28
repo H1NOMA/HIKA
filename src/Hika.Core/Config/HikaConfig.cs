@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Hika.Config;
@@ -44,6 +45,20 @@ public sealed class HikaConfig
 
     /// <summary>Свои команды поверх встроенного каталога: фраза -> что открыть.</summary>
     public List<CustomEntry> Custom { get; set; } = new();
+
+    /// <summary>
+    /// Всё, чего эта сборка не знает.
+    ///
+    /// Файл настроек человек открывает и правит руками — я сама его об этом
+    /// прошу. А раз так, в нём заводится то, чего в коде нет: строка, дописанная
+    /// на будущее, ключ из более новой версии, пометка себе. Раньше первое же
+    /// «Применить» стирало всё это без следа и без слова: окно записывало
+    /// поверх файла свой снимок, а в снимке чужих ключей не было.
+    ///
+    /// Теперь они доезжают до записи в целости.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class AudioConfig
@@ -85,6 +100,10 @@ public sealed class AudioConfig
 
     /// <summary>Сколько звука до начала речи подмешивать в фразу, мс. Спасает съеденное начало слова.</summary>
     public int PreRollMs { get; set; } = 320;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class SpeechConfig
@@ -189,6 +208,10 @@ public sealed class SpeechConfig
     /// ожидание там, где человек уже понял, что его не услышали, и повторил.
     /// </summary>
     public bool FastDecoding { get; set; } = true;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class WakeConfig
@@ -241,6 +264,10 @@ public sealed class WakeConfig
     /// от выбранной — меняется только то, на что она отзывается.
     /// </summary>
     public bool RespondToBoth { get; set; } = true;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class OverlayConfig
@@ -314,6 +341,10 @@ public sealed class OverlayConfig
 
     /// <summary>Прятать свечение от записи экрана и скриншотов.</summary>
     public bool ExcludeFromCapture { get; set; } = false;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class BehaviorConfig
@@ -413,6 +444,10 @@ public sealed class BehaviorConfig
 
     /// <summary>Уровень журнала: trace | debug | info | warn | error</summary>
     public string LogLevel { get; set; } = "info";
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class VoiceConfig
@@ -473,6 +508,10 @@ public sealed class VoiceConfig
     /// сам себе. В наушниках можно выключить.
     /// </summary>
     public bool SuppressMicWhileSpeaking { get; set; } = true;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class BrainConfig
@@ -510,6 +549,10 @@ public sealed class BrainConfig
 
     /// <summary>Рассказывать Claude, чем человек обычно пользуется. Помогает в ответах про его же компьютер.</summary>
     public bool ShareProfile { get; set; } = true;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class LearningConfig
@@ -540,6 +583,10 @@ public sealed class LearningConfig
 
     /// <summary>Предел прибавки за частый запуск, 0..1. Больше 0.15 ставить не стоит: перебьёт само сходство.</summary>
     public double MaxBoost { get; set; } = 0.10;
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 public sealed class CustomEntry
@@ -555,4 +602,8 @@ public sealed class CustomEntry
 
     [JsonIgnore]
     public bool IsValid => Phrases.Count > 0 && !string.IsNullOrWhiteSpace(Target);
+
+    /// <summary>Ключи, которых эта сборка не знает: сохраняются как есть.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
 }

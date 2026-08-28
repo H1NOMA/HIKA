@@ -140,6 +140,49 @@ public sealed class ConfigStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Настройки строкой — ровно в том виде, в каком они лягут в файл.
+    ///
+    /// Нужно окну настроек, чтобы понять, есть ли несохранённые правки:
+    /// сравнить снимок нынешних настроек со снимком того, что стоит
+    /// в полях. Способ грубый, зато не умеет проглядеть переключатель —
+    /// а перечисление полей руками умеет, и именно так теряются настройки,
+    /// про которые все уверены, что они сохраняются.
+    /// </summary>
+    public string Snapshot()
+    {
+        lock (_lock)
+        {
+            try { return JsonSerializer.Serialize(Current, Options); }
+            catch (Exception ex)
+            {
+                Log.Warn($"снимок настроек не снялся: {ex.Message}", "config");
+                return "";
+            }
+        }
+    }
+
+    /// <summary>Отдельная копия настроек: правки в ней не трогают живые.</summary>
+    public HikaConfig Copy()
+    {
+        lock (_lock)
+        {
+            try
+            {
+                var copy = JsonSerializer.Deserialize<HikaConfig>(
+                    JsonSerializer.Serialize(Current, Options), Options);
+
+                if (copy is not null) { Normalize(copy); return copy; }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"копия настроек не сделалась: {ex.Message}", "config");
+            }
+
+            return new HikaConfig();
+        }
+    }
+
     public void StartWatching()
     {
         try

@@ -193,6 +193,18 @@ internal static class Program
         // команду. Проверку делаем до всего остального.
         using var mutex = new Mutex(initiallyOwned: true, InstanceMutexName, out var isFirst);
 
+        // Мы — тот экземпляр, которого попросили встать на место прежнего.
+        // Он в этот момент ещё закрывается: сворачивает микрофон, дописывает
+        // профиль. Уйти отсюда с «уже запущена» означало бы, что перезапуск
+        // по кнопке гасит программу и не поднимает её обратно.
+        if (!isFirst && args.Contains(RestartFlag))
+        {
+            Log.Info("жду, пока закроется прежний экземпляр", "startup");
+
+            try { isFirst = mutex.WaitOne(TimeSpan.FromSeconds(20)); }
+            catch (AbandonedMutexException) { isFirst = true; }
+        }
+
         if (!isFirst)
         {
             Log.Warn("HIKA уже запущена, второй экземпляр закрывается", "startup");
@@ -289,6 +301,7 @@ internal static class Program
                     onLiveListen: () => LaunchInConsole(tray, "--listen"),
                     onDiagnostics: () => LaunchInConsole(tray, "--diagnose"),
                     onTestOverlay: () => host.TestOverlay(),
+                    onRestart: Restart,
                     host: host);
             }
 
@@ -455,6 +468,37 @@ internal static class Program
         Console.WriteLine("и журнал: " + AppPaths.LogDirectory);
 
         return 0;
+    }
+
+    /// <summary>Признак того, что нас запустил предыдущий экземпляр самой себя.</summary>
+    private const string RestartFlag = "--restarted";
+
+    /// <summary>
+    /// Закрывает программу и тут же открывает заново.
+    ///
+    /// Нужно из-за настроек, которые читаются только при старте: модель
+    /// распознавания, звуковое устройство, права. Окно про них честно
+    /// сообщало — и на этом всё: способа перезапуститься у человека не было
+    /// вовсе, кроме как найти значок в трее и догадаться, что «Выход»
+    /// и повторный запуск — это и есть то, о чём его просят.
+    ///
+    /// Новый экземпляр стартует с флагом и потому не отступает, наткнувшись
+    /// на ещё живой замок предыдущего, а дожидается его.
+    /// </summary>
+    private static void Restart()
+    {
+        var path = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("не знаю, где лежу");
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = path,
+            Arguments = RestartFlag,
+            UseShellExecute = true,
+        });
+
+        Log.Info("перезапуск по просьбе из настроек", "startup");
+        Application.Exit();
     }
 
     /// <summary>Открывает второй экземпляр в отдельном окне консоли — там живут проверки.</summary>

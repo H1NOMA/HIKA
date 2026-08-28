@@ -21,6 +21,12 @@ public static class Log
     private static string? _logPath;
     private static volatile bool _consoleEcho;
 
+    // Где мы сейчас пишем и сколько уже написали. Нужно, чтобы вовремя
+    // начать следующий файл: подробности — в LogRotation.
+    private static DateTime _fileDay = DateTime.MinValue;
+    private static int _part = 1;
+    private static long _written;
+
     public static LogLevel MinimumLevel { get; set; } = LogLevel.Info;
 
     public static string LogDirectory { get; private set; } = "";
@@ -38,7 +44,14 @@ public static class Log
             {
                 Directory.CreateDirectory(directory);
                 TrimOldLogs(directory);
-                _logPath = Path.Combine(directory, $"hika-{DateTime.Now:yyyy-MM-dd}.log");
+
+                // Продолжаем ту часть, на которой остановились до перезапуска,
+                // а не начинаем новую: иначе за день набралось бы столько
+                // файлов, сколько раз человек перезагрузил компьютер.
+                _fileDay = DateTime.Now.Date;
+                _part = LogRotation.LastPart(Directory.GetFiles(directory, "hika-*.log"), _fileDay);
+                _logPath = Path.Combine(directory, LogRotation.FileName(_fileDay, _part));
+                _written = FileSize(_logPath);
             }
             catch
             {
@@ -116,13 +129,46 @@ public static class Log
 
             try
             {
+                RollIfNeeded();
+
                 File.AppendAllLines(_logPath, buffer, Encoding.UTF8);
+
+                // Считаем сами, а не спрашиваем длину файла: обращение к диску
+                // на каждую пачку строк — ровно то, ради чего пачки и собираются.
+                foreach (var line in buffer) _written += Encoding.UTF8.GetByteCount(line) + 2;
             }
             catch
             {
                 // Файл занят или диск полон — молча продолжаем.
             }
         }
+    }
+
+    /// <summary>
+    /// Начинает следующий файл, когда наступил новый день или текущий дорос
+    /// до предела. Зовётся из потока записи и только оттуда.
+    /// </summary>
+    private static void RollIfNeeded()
+    {
+        var now = DateTime.Now;
+        if (!LogRotation.ShouldRoll(_fileDay, now, _written)) return;
+
+        var newDay = now.Date != _fileDay.Date;
+
+        _part = newDay ? 1 : _part + 1;
+        _fileDay = now.Date;
+        _written = 0;
+        _logPath = Path.Combine(LogDirectory, LogRotation.FileName(_fileDay, _part));
+
+        // Новый день — повод и прибраться: программа, живущая в трее месяцами,
+        // до сих пор делала уборку ровно один раз, при запуске.
+        if (newDay) TrimOldLogs(LogDirectory);
+    }
+
+    private static long FileSize(string path)
+    {
+        try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
+        catch { return 0; }
     }
 
     /// <summary>Оставляем журналы за последнюю неделю, остальное удаляем.</summary>

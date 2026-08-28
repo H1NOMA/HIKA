@@ -252,9 +252,7 @@ public sealed class AppHost : IDisposable
             _ = Task.Run(() =>
             {
                 RefreshInstalledApps();
-
-                var period = TimeSpan.FromMinutes(config.Behavior.ReindexMinutes);
-                _reindexTimer = new System.Threading.Timer(_ => RefreshInstalledApps(), null, period, period);
+                ConfigureReindex(config.Behavior);
             });
         }
 
@@ -391,6 +389,31 @@ public sealed class AppHost : IDisposable
         try { Preparing?.Invoke(what); }
         catch (Exception ex) { Log.Debug($"сообщение о подготовке не дошло: {ex.Message}", "host"); }
     }
+
+    /// <summary>
+    /// Заводит или останавливает пересборку списка установленных программ.
+    ///
+    /// Зовётся и при запуске, и при каждом «Применить». До сих пор — только
+    /// при запуске, и обе настройки рядом с ним ничего не делали: выключенный
+    /// перебор продолжал идти, включённый не начинался, а изменённая частота
+    /// не менялась. Человек ставил час, видел, что ничего не изменилось,
+    /// и делал единственный доступный ему вывод — что настройка декоративная.
+    /// </summary>
+    private void ConfigureReindex(BehaviorConfig behavior)
+    {
+        lock (_reindexLock)
+        {
+            try { _reindexTimer?.Dispose(); } catch { }
+            _reindexTimer = null;
+
+            if (!behavior.IndexInstalledApps) return;
+
+            var period = TimeSpan.FromMinutes(Math.Clamp(behavior.ReindexMinutes, 1, 1440));
+            _reindexTimer = new System.Threading.Timer(_ => RefreshInstalledApps(), null, period, period);
+        }
+    }
+
+    private readonly object _reindexLock = new();
 
     private void RefreshInstalledApps()
     {
@@ -1785,8 +1808,42 @@ public sealed class AppHost : IDisposable
 
     // ---- Управление --------------------------------------------------------
 
-    /// <summary>Прогоняет свечение по всем состояниям — проверка без микрофона.</summary>
-    public void TestOverlay() => _ = Task.Run(() => _overlay.RunSelfTestAsync(_shutdown.Token));
+    /// <summary>
+    /// Прогоняет свечение по всем состояниям — проверка без микрофона.
+    ///
+    /// Возвращает пустую строку, если проверка пошла, и причину — если нет.
+    /// Раньше не возвращала ничего: при выключенном свечении кнопка «Показать
+    /// свечение сейчас» молча не делала ничего, и человек оставался с кнопкой,
+    /// которая на вид сломана. Причина при этом писалась в журнал — туда,
+    /// куда он не смотрит и не должен.
+    /// </summary>
+    public string TestOverlay()
+    {
+        if (!_overlay.IsRunning)
+            return "Свечение сейчас выключено — включите его выше и нажмите «Применить».";
+
+        if (Interlocked.Exchange(ref _overlayTesting, 1) == 1)
+            return "Проверка уже идёт — досмотрите её до конца.";
+
+        _ = Task.Run(async () =>
+        {
+            try { await _overlay.RunSelfTestAsync(_shutdown.Token).ConfigureAwait(false); }
+            catch (Exception ex) { Log.Error("проверка свечения сорвалась", ex, "host"); }
+            finally
+            {
+                Volatile.Write(ref _overlayTesting, 0);
+
+                // Возвращаем кайму к тому состоянию, в котором она была
+                // до проверки: самопроверка кончается «спрятано», а программа
+                // за эти пять секунд могла успеть услышать имя.
+                _overlay.SetState(State == HostState.Idle ? OverlayState.Hidden : OverlayState.Listening);
+            }
+        });
+
+        return "";
+    }
+
+    private int _overlayTesting;
 
     /// <summary>
     /// Слушать по нажатию клавиши, без имени.
@@ -1882,6 +1939,7 @@ public sealed class AppHost : IDisposable
             _learning?.Reconfigure(config.Learning);
             _catalog.Load(config);
             _router = new SkillRouter(_catalog, _timers);
+            ConfigureReindex(config.Behavior);
 
             // Голос и разговор — в фоне: перечисление голосов лезет в систему,
             // а окно настроек должно закрыться сразу, а не через секунду.
@@ -1924,7 +1982,7 @@ public sealed class AppHost : IDisposable
         _workSignal.Set();
         try { _worker?.Join(1500); } catch { }
 
-        try { _reindexTimer?.Dispose(); } catch { }
+        lock (_reindexLock) { try { _reindexTimer?.Dispose(); } catch { } }
         try { _timers.Dispose(); } catch { }
         try { _voice.Dispose(); } catch { }
         try { _brain.Dispose(); } catch { }

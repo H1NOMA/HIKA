@@ -54,7 +54,7 @@ public sealed class ClaudeBrain : IDisposable
 
         if (!config.Enabled)
         {
-            _client = null;
+            Release();
             Description = "выключен";
             return;
         }
@@ -62,7 +62,7 @@ public sealed class ClaudeBrain : IDisposable
         var key = ApiKeyStore.Read();
         if (string.IsNullOrWhiteSpace(key))
         {
-            _client = null;
+            Release();
             Description = "нет ключа";
             Log.Info("разговор включён, но ключ не задан — отвечать нечем", "brain");
             return;
@@ -76,6 +76,8 @@ public sealed class ClaudeBrain : IDisposable
             // потому что разговор идёт в том же потоке, что и распознавание
             // команд. Полминуты хватает любому нормальному ответу, а всё,
             // что дольше, человеку уже не нужно: он давно повторил вопрос.
+            Release();
+
             _client = new AnthropicClient
             {
                 ApiKey = key,
@@ -87,7 +89,7 @@ public sealed class ClaudeBrain : IDisposable
         }
         catch (Exception ex)
         {
-            _client = null;
+            Release();
             Description = "ошибка";
             Log.Error("не удалось подключиться к Claude", ex, "brain");
         }
@@ -285,9 +287,29 @@ public sealed class ClaudeBrain : IDisposable
         }
     }
 
+    /// <summary>
+    /// Отпускает прежнего клиента.
+    ///
+    /// За клиентом стоит HttpClient со своим пулом соединений, и каждое
+    /// «Применить» заводило нового, не закрыв старого. Человек, который
+    /// за вечер десять раз подправил стиль ответов, оставлял за собой десять
+    /// пулов с живыми сокетами — до самого выхода из программы.
+    /// </summary>
+    private void Release()
+    {
+        var previous = _client;
+        _client = null;
+
+        if (previous is IDisposable disposable)
+        {
+            try { disposable.Dispose(); }
+            catch (Exception ex) { Log.Warn($"прежнее соединение не закрылось: {ex.Message}", "brain"); }
+        }
+    }
+
     public void Dispose()
     {
-        _client = null;
+        Release();
         lock (_lock) _history.Clear();
     }
 }
