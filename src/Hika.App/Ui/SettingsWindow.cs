@@ -147,6 +147,7 @@ public sealed class SettingsWindow : Form
     private HotkeyField _listenHotkey = null!;
     private HotkeyField _muteHotkey = null!;
     private DropDownField _logLevel = null!;
+    private CustomCommands _custom = null!;
 
     private string _initialModel = "";
     private string _initialDevice = "";
@@ -260,6 +261,7 @@ public sealed class SettingsWindow : Form
             ("brain", "Разговор"),
             ("learning", "Обучение"),
             ("glow", "Свечение"),
+            ("custom", "Свои команды"),
             ("behavior", "Поведение"),
             ("about", "О программе"),
         });
@@ -375,6 +377,7 @@ public sealed class SettingsWindow : Form
         _pages["brain"] = SafePage("Разговор", BuildBrainPage);
         _pages["learning"] = SafePage("Обучение", BuildLearningPage);
         _pages["glow"] = SafePage("Свечение", BuildGlowPage);
+        _pages["custom"] = SafePage("Свои команды", BuildCustomPage);
         _pages["behavior"] = SafePage("Поведение", BuildBehaviorPage);
         _pages["about"] = SafePage("О программе", BuildAboutPage);
 
@@ -447,7 +450,10 @@ public sealed class SettingsWindow : Form
         return Stack(
             new SectionTitle("Что я умею",
                 $"Сначала имя, потом команда: «{name}, открой ютуб». Слова-паразиты и порядок слов " +
-                $"значения не имеют — «{name}, открой ко мне уже эти настройки» тоже сработает."),
+                $"значения не имеют — «{name}, открой ко мне уже эти настройки» тоже сработает.\n\n" +
+                "Здесь только то, что я знаю сама. Свои программы, папки и ссылки добавляются " +
+                "в разделе «Свои команды» — там же, куда ведёт щелчок по непонятой фразе " +
+                "в разделе «Что происходит»."),
             new CommandBook());
     }
 
@@ -487,6 +493,22 @@ public sealed class SettingsWindow : Form
         };
 
         var list = new HeardList(() => _host?.Recent.Items() ?? Array.Empty<Heard>());
+
+        // Щелчок по непонятой фразе ведёт прямо к своим командам с уже
+        // вписанной фразой. Иначе научить программу можно только вспомнив
+        // сказанное и перепечатав его в другом разделе — то есть почти никогда.
+        list.TeachRequested += heard =>
+        {
+            try
+            {
+                _nav.Select("custom");
+                ShowPage("custom");
+                _custom.StartWith(heard.Text);
+
+                SetNotice("Впишите справа, что открывать по этой фразе, и нажмите «Применить».");
+            }
+            catch (Exception ex) { Log.Error("переход к своим командам не вышел", ex, "ui"); }
+        };
 
         var refresh = new System.Windows.Forms.Timer { Interval = 2000 };
         refresh.Tick += (_, _) =>
@@ -731,6 +753,31 @@ public sealed class SettingsWindow : Form
             new SettingRow("Прятать от записи экрана",
                 "Свечение не попадёт в скриншоты и трансляции.",
                 _excludeCapture, 46));
+    }
+
+    /// <summary>
+    /// Свои команды. Отвечает на вопрос, который человек задаёт вторым,
+    /// сразу после «а что она умеет»: «а мою добавить?».
+    ///
+    /// До сих пор ответом было «открой config.json, найди раздел custom,
+    /// допиши объект, не забудь запятую». Человеку, который просит компьютер
+    /// открывать вещи голосом, предлагать в качестве решения правку JSON —
+    /// значит не понимать, зачем он пришёл.
+    /// </summary>
+    private Control BuildCustomPage()
+    {
+        _custom = new CustomCommands();
+
+        return Stack(
+            new SectionTitle("Свои команды",
+                "Я знаю браузеры, мессенджеры и полсотни сайтов. Я не знаю папку с вашей работой, " +
+                "ярлык рабочего VPN и ту программу, ради которой всё и затевалось. Впишите их сюда."),
+            new SectionTitle("Как это работает",
+                "Слева — что сказать, через запятую можно несколько вариантов. Справа — что открыть: " +
+                "путь к программе, ссылка или просто имя. Кнопка «…» выбирает файл и подставляет " +
+                "путь сама. Своё всегда важнее встроенного: если вы описали команду руками, " +
+                "я открою именно её."),
+            _custom);
     }
 
     private Control BuildBehaviorPage()
@@ -1275,6 +1322,7 @@ public sealed class SettingsWindow : Form
         Section("Разговор", () => LoadBrain(c));
         Section("Обучение", () => LoadLearning(c));
         Section("Поведение", () => LoadBehavior(c));
+        Section("Свои команды", () => _custom.Load(c.Custom));
 
         // Отметка, с которой дальше сравниваются правки. Снимается последней:
         // до этого поля ещё заполняются, и снятый раньше снимок означал бы,
@@ -1419,6 +1467,7 @@ public sealed class SettingsWindow : Form
         Run("Разговор", () => ApplyBrain(c));
         Run("Обучение", () => ApplyLearning(c));
         Run("Поведение", () => ApplyBehavior(c));
+        Run("Свои команды", () => c.Custom = _custom.Collect());
 
         void Run(string name, Action action)
         {

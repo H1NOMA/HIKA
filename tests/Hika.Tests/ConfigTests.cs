@@ -131,3 +131,57 @@ public class ЧужиеКлючиВНастройкахTests
         Assert.Null(config.Audio.Unknown);
     }
 }
+
+/// <summary>
+/// Свои команды: то, что человек вписал в окне настроек, должно доехать
+/// до каталога и вернуться обратно в окно без потерь.
+/// </summary>
+public class СвоиКомандыTests
+{
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    [Fact]
+    public void ЗаписьСНесколькимиФразамиГодится()
+    {
+        var entry = new CustomEntry
+        {
+            Phrases = new List<string> { "открой мою папку", "мои файлы" },
+            Target = @"C:\Работа",
+        };
+
+        Assert.True(entry.IsValid);
+    }
+
+    [Fact]
+    public void БезЦелиЗаписьНеГодится()
+        => Assert.False(new CustomEntry { Phrases = new List<string> { "открой" } }.IsValid);
+
+    [Fact]
+    public void БезФразыЗаписьНеГодится()
+        => Assert.False(new CustomEntry { Target = "notepad.exe" }.IsValid);
+
+    /// <summary>
+    /// Аргументы командной строки в окне настроек не показываются: их правят
+    /// руками. Значит, сохранение из окна обязано их пронести — иначе первое
+    /// же «Применить» сотрёт их у того самого человека, который не поленился
+    /// их вписать.
+    /// </summary>
+    [Fact]
+    public void АргументыПереживаютСохранение()
+    {
+        var json = """
+            { "custom": [ { "phrases": ["открой смету"], "target": "excel.exe", "arguments": "смета.xlsx" } ] }
+            """;
+
+        var config = JsonSerializer.Deserialize<HikaConfig>(json, Options)!;
+        var снова = JsonSerializer.Deserialize<HikaConfig>(
+            JsonSerializer.Serialize(config, Options), Options)!;
+
+        Assert.Single(снова.Custom);
+        Assert.Equal("смета.xlsx", снова.Custom[0].Arguments);
+    }
+}

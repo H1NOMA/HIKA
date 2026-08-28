@@ -307,6 +307,20 @@ public sealed class HeardList : Control
 
     private const int RowHeight = 44;
 
+    /// <summary>Строка, над которой сейчас мышь. −1 — ни над какой.</summary>
+    private int _hover = -1;
+
+    /// <summary>
+    /// Попросили научить: щёлкнули по фразе, на которой ничего не открылось.
+    ///
+    /// Место для этого выбрано не случайно. Фраза, которую программа не поняла,
+    /// видна ровно здесь и ровно один раз — дальше человек её забудет, и вместе
+    /// с ней забудется намерение что-то с этим сделать. Отправлять его в другой
+    /// раздел вспоминать и перепечатывать сказанное значит потерять и то
+    /// и другое.
+    /// </summary>
+    public event Action<Heard>? TeachRequested;
+
     public HeardList(Func<IReadOnlyList<Heard>> source)
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
@@ -340,6 +354,53 @@ public sealed class HeardList : Control
     /// высоту, и последние молча уходят под нижний край.
     /// </summary>
     private static int HeightFor(int count) => RowHeight * Math.Max(1, count);
+
+    /// <summary>Есть ли чему учить: команда не разобралась или не выполнилась.</summary>
+    private static bool Teachable(Heard item)
+        => item.Outcome is HeardOutcome.NotUnderstood or HeardOutcome.Failed
+           && !string.IsNullOrWhiteSpace(item.Text);
+
+    private int RowAt(int y)
+    {
+        var index = y / RowHeight;
+        return index >= 0 && index < _items.Count ? index : -1;
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+
+        var index = RowAt(e.Y);
+        var next = index >= 0 && Teachable(_items[index]) ? index : -1;
+
+        if (next == _hover) return;
+
+        _hover = next;
+        Cursor = next >= 0 ? Cursors.Hand : Cursors.Default;
+        Invalidate();
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+
+        if (_hover < 0) return;
+
+        _hover = -1;
+        Cursor = Cursors.Default;
+        Invalidate();
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+
+        var index = RowAt(e.Y);
+        if (index < 0 || !Teachable(_items[index])) return;
+
+        try { TeachRequested?.Invoke(_items[index]); }
+        catch (Exception ex) { Log.Error("переход к своим командам не вышел", ex, "ui"); }
+    }
 
     private IReadOnlyList<Heard> Read()
     {
@@ -394,6 +455,13 @@ public sealed class HeardList : Control
             {
                 TextRenderer.DrawText(g, $"похоже на имя: {item.WakeScore:0.00}", Theme.Small,
                     new Rectangle(Width - 160, top + 24, 156, 18), Theme.Warn,
+                    TextFormatFlags.Right | TextFormatFlags.Top);
+            }
+            else if (Teachable(item))
+            {
+                TextRenderer.DrawText(g, i == _hover ? "научить →" : "научить", Theme.Small,
+                    new Rectangle(Width - 160, top + 24, 156, 18),
+                    i == _hover ? Theme.Accent : Theme.TextFaint,
                     TextFormatFlags.Right | TextFormatFlags.Top);
             }
 
