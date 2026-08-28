@@ -869,6 +869,12 @@ public sealed class AppHost : IDisposable
         var stopwatch = Stopwatch.StartNew();
         var result = _recognizer.TranscribeAsync(samples, _shutdown.Token).GetAwaiter().GetResult();
 
+        // Отметка, где кончилось ожидание текста и началось действие.
+        // Считать действие как «всё минус время модели» нельзя: между концом
+        // фразы и ответом модели бывает очередь и догрузка, и они уезжали
+        // в действие, показывая полсекунды там, где выполнялось «поставь паузу».
+        var recognized = (int)stopwatch.ElapsedMilliseconds;
+
         if (result.IsEmpty)
         {
             Log.Debug("фраза пустая после очистки", "host");
@@ -898,10 +904,12 @@ public sealed class AppHost : IDisposable
         {
             WakeMs = _wakeMs,
             SilenceMs = _configStore.Current.Audio.SilenceMs,
-            RecognitionMs = (int)result.Elapsed.TotalMilliseconds,
+            RecognitionMs = recognized,
+            DecodeMs = (int)result.Elapsed.TotalMilliseconds,
             AudioMs = (int)(samples.Length * 1000L / AudioFormat.SampleRate),
         };
         _pendingValid = true;
+        _recognizedAtMs = recognized;
 
         var match = _wakeMatcher.Match(result.Text);
 
@@ -1269,6 +1277,9 @@ public sealed class AppHost : IDisposable
     private bool _pendingValid;
     private int _speedSamples;
 
+    /// <summary>На какой отметке секундомера пришёл распознанный текст.</summary>
+    private int _recognizedAtMs;
+
     /// <summary>Запоминает услышанную фразу для раздела «Что происходит».</summary>
     private void Note(string text, string intent, string result, HeardOutcome outcome,
         double wakeScore, Stopwatch stopwatch)
@@ -1292,7 +1303,7 @@ public sealed class AppHost : IDisposable
         if (!_pendingValid) return;
         _pendingValid = false;
 
-        var action = (int)stopwatch.ElapsedMilliseconds - _pending.RecognitionMs;
+        var action = (int)stopwatch.ElapsedMilliseconds - _recognizedAtMs;
         _speed.Add(_pending with { ActionMs = Math.Max(0, action) });
 
         // Раз в десяток команд итог уходит и в журнал. Человек журнал

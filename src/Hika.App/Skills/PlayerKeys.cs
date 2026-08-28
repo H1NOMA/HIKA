@@ -72,10 +72,16 @@ public static class PlayerKeys
             var target = Target();
             if (target is null) return SkillResult.Fail("не вижу плеера — откройте видео и повторите");
 
-            for (int i = 0; i < Math.Max(1, times); i++)
+            var count = Math.Max(1, times);
+
+            for (int i = 0; i < count; i++)
             {
                 Win32.TapCombo(keys);
-                if (times > 1) Thread.Sleep(35);
+
+                // Пауза между нажатиями, но не после последнего: она нужна,
+                // чтобы плеер успел разобрать предыдущее, а после последнего
+                // разбирать уже нечего — это чистое ожидание человека.
+                if (i + 1 < count) Thread.Sleep(35);
             }
 
             Log.Info($"{description} -> {target}", "media");

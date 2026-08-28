@@ -735,6 +735,27 @@ public sealed class SettingsWindow : Form
 
     private Control BuildBehaviorPage()
     {
+        var openLog = new FlatButton("Открыть папку журнала") { Width = 190, Height = 32 };
+        openLog.Click += (_, _) =>
+        {
+            try
+            {
+                var directory = Log.LogDirectory.Length > 0 ? Log.LogDirectory : AppPaths.LogDirectory;
+                Directory.CreateDirectory(directory);
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = directory,
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("папка журнала не открылась", ex, "ui");
+                SetNotice($"Журнал лежит здесь: {AppPaths.LogDirectory}");
+            }
+        };
+
         _armedSeconds = new SliderField { Minimum = 0, Maximum = 20, Step = 1, Format = v => v < 1 ? "выкл." : $"{v:0} с" };
         _commandFollowUp = new SliderField { Minimum = 0, Maximum = 30, Step = 1, Format = v => v < 1 ? "выкл." : $"{v:0} с" };
         _musicApp = new TextField { Placeholder = "пусто — выбрать самой" };
@@ -805,7 +826,10 @@ public sealed class SettingsWindow : Form
             new SettingRow("Записывать распознанный текст",
                 "Незаменимо при настройке и совершенно не нужно потом. Это ваша речь, которая ложится на диск, — выключите, когда всё заработает.",
                 _logTranscripts, 46),
-            new SettingRow("Подробность журнала", "", _logLevel));
+            new SettingRow("Подробность журнала", "", _logLevel),
+            new SettingRow("Где он лежит",
+                "Один файл на день, не больше восьми мегабайт; всё старше недели удаляется само.",
+                openLog, 190));
     }
 
     // ---- Голос ------------------------------------------------------------

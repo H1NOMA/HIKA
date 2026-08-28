@@ -52,6 +52,9 @@ public sealed class TrayIcon : IDisposable
     /// <summary>Попросили показать список команд.</summary>
     public event Action? HelpRequested;
 
+    /// <summary>Попросили открыть папку с журналом.</summary>
+    public event Action? LogRequested;
+
     public TrayIcon(string personaId)
     {
         _personaId = Personas.ById(personaId).Id;
@@ -91,6 +94,13 @@ public sealed class TrayIcon : IDisposable
 
         _menu.Items.Add(new ToolStripMenuItem("Живая проверка", null, (_, _) => LiveListenRequested?.Invoke()));
         _menu.Items.Add(new ToolStripMenuItem("Диагностика", null, (_, _) => DiagnosticsRequested?.Invoke()));
+
+        // Пункт существует потому, что на него ссылаются: и окно настроек,
+        // и сообщения об ошибках отправляют человека в «Журнал работы»
+        // в этом меню. До сих пор его тут не было вовсе — то есть каждое
+        // такое указание вело в никуда, и человек, у которого что-то сломалось,
+        // получал совет, выполнить который невозможно.
+        _menu.Items.Add(new ToolStripMenuItem("Журнал работы", null, (_, _) => LogRequested?.Invoke()));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Выход", null, (_, _) => ExitRequested?.Invoke()));
 

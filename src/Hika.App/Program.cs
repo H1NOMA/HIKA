@@ -350,6 +350,7 @@ internal static class Program
             catch (Exception ex) { Log.Error("список команд не открылся", ex, "ui"); }
         };
 
+        tray.LogRequested += () => OpenLogFolder(tray);
         tray.DiagnosticsRequested += () => LaunchInConsole(tray, "--diagnose");
         tray.LiveListenRequested += () => LaunchInConsole(tray, "--listen");
         tray.ExitRequested += () => Application.Exit();
@@ -468,6 +469,33 @@ internal static class Program
         Console.WriteLine("и журнал: " + AppPaths.LogDirectory);
 
         return 0;
+    }
+
+    /// <summary>
+    /// Открывает папку журнала в проводнике.
+    ///
+    /// Не сам файл: его открытие зависит от того, чем в системе назначено
+    /// открывать .log, а этого обычно не назначено ничем. Папка открывается
+    /// всегда и одинаково.
+    /// </summary>
+    private static void OpenLogFolder(TrayIcon tray)
+    {
+        try
+        {
+            var directory = Log.LogDirectory.Length > 0 ? Log.LogDirectory : AppPaths.LogDirectory;
+            Directory.CreateDirectory(directory);
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = directory,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("папка журнала не открылась", ex, "tray");
+            tray.ShowMessage("HIKA", $"Журнал лежит здесь: {AppPaths.LogDirectory}", ToolTipIcon.Info);
+        }
     }
 
     /// <summary>Признак того, что нас запустил предыдущий экземпляр самой себя.</summary>
