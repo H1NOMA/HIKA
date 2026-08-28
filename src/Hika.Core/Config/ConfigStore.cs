@@ -21,6 +21,18 @@ public sealed class ConfigStore : IDisposable
 
     private readonly string _path;
     private FileSystemWatcher? _watcher;
+
+    /// <summary>
+    /// Что мы записали в файл последними.
+    ///
+    /// Наблюдатель за файлом не отличает чужую правку от собственной, и после
+    /// каждого «Применить» настройки применялись дважды: сразу окном настроек
+    /// и ещё раз через четверть секунды — по следу собственной же записи.
+    /// Всё тяжёлое при этом делалось дважды: перечитывание каталога программ,
+    /// перезапуск озвучки, пересборка свечения. А два пересоздания свечения
+    /// внахлёст могут оставить человека вовсе без каймы до перезапуска.
+    /// </summary>
+    private string _lastWritten = "";
     private DateTime _lastReload = DateTime.MinValue;
     private readonly object _lock = new();
 
@@ -96,6 +108,8 @@ public sealed class ConfigStore : IDisposable
                 var tmp = _path + ".tmp";
                 File.WriteAllText(tmp, json);
                 File.Move(tmp, _path, overwrite: true);
+
+                _lastWritten = json;
             }
             catch (Exception ex)
             {
@@ -137,6 +151,28 @@ public sealed class ConfigStore : IDisposable
         Task.Run(async () =>
         {
             await Task.Delay(250).ConfigureAwait(false); // дать редактору дописать файл
+
+            // Своя же запись — перечитывать нечего. Проверяем содержимым,
+            // а не временем: время меняется и от касания файла, а нас
+            // интересует только то, изменилось ли что-нибудь по существу.
+            try
+            {
+                var text = File.ReadAllText(_path);
+
+                lock (_lock)
+                {
+                    if (text == _lastWritten)
+                    {
+                        Log.Debug("файл настроек изменили мы сами — перечитывать нечего", "config");
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // Не прочиталось — пусть разбирается Load, он умеет.
+            }
+
             var before = Current;
             var after = Load();
             if (!ReferenceEquals(before, after))

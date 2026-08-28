@@ -365,6 +365,15 @@ public sealed class WhisperRecognizer : ISpeechRecognizer
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // Поле перечитывается здесь, а не выше, и это не перестраховка.
+            // Пока мы ждали замок, обновление словаря могло подменить
+            // и уничтожить процессор — оно делает это под тем же замком.
+            // Ссылка, взятая до ожидания, к этому моменту указывает
+            // на освобождённое состояние whisper, и распознавание молча
+            // возвращает пустоту: снаружи это «услышала и ничего не сделала».
+            processor = _processor;
+            if (processor is null) return RecognitionResult.Empty;
+
             processor = AdaptContext(input.Length) ?? processor;
 
             var sw = Stopwatch.StartNew();

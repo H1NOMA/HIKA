@@ -676,16 +676,25 @@ public sealed class AppHost : IDisposable
 
     private void OnUtteranceReady(float[] samples)
     {
+        // Отмена идёт под тем же замком, что и очередь, и это не педантизм.
+        // Публикация отменяемой проверки тоже происходит под ним; порознь
+        // между «задание взято» и «отмена опубликована» остаётся щель,
+        // в которую отмена уходит в никуда — и готовая команда ждёт, пока
+        // доиграет проверка имени, которая уже никому не нужна.
         lock (_queueLock)
         {
             _pendingUtterance = samples;
+
             // Ранний кусок этой же фразы больше не нужен: сейчас разберём её целиком.
             _pendingProbe = null;
-        }
 
-        // И ту проверку, что уже идёт, тоже снимаем — она про ту же фразу,
-        // а держит очередь перед готовой командой.
-        try { _probeCancellation?.Cancel(); } catch { }
+            // И ту проверку, что уже идёт, тоже снимаем — она про ту же фразу.
+            try { _probeCancellation?.Cancel(); } catch { }
+
+            // Заодно прерываем разговор: человек заговорил снова, и ждать
+            // ответа на прошлый вопрос значит не услышать этот.
+            try { _talkCancellation?.Cancel(); } catch { }
+        }
 
         _workSignal.Set();
     }
@@ -728,8 +737,20 @@ public sealed class AppHost : IDisposable
         if (!recognizer.IsReady || _wakeMatcher is null) return;
         if (State is HostState.Armed or HostState.Working or HostState.Dictating) return;
 
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-        _probeCancellation = cancellation;
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+
+        lock (_queueLock)
+        {
+            // Фраза успела закончиться, пока мы сюда шли, — проверять имя
+            // отдельно уже незачем, сейчас разберётся вся фраза целиком.
+            if (_pendingUtterance is not null)
+            {
+                cancellation.Dispose();
+                return;
+            }
+
+            _probeCancellation = cancellation;
+        }
 
         RecognitionResult result;
         try
@@ -738,7 +759,11 @@ public sealed class AppHost : IDisposable
         }
         finally
         {
-            _probeCancellation = null;
+            // Уничтожать источник отмены можно только после того, как его
+            // перестанут видеть из потока звука, — иначе Cancel придёт
+            // по уже освобождённому объекту.
+            lock (_queueLock) _probeCancellation = null;
+            cancellation.Dispose();
         }
 
         if (result.IsEmpty) return;
@@ -833,6 +858,9 @@ public sealed class AppHost : IDisposable
 
         string command;
 
+        // Разобранное намерение, если его уже посчитали по дороге.
+        Intent? known = null;
+
         if (match.Matched)
         {
             command = match.Rest;
@@ -846,12 +874,15 @@ public sealed class AppHost : IDisposable
         }
         else if (WithinFollowUp() && ContinuesWithoutName(result.Text) is { } followUp)
         {
+            // Разбор уже сделан внутри проверки — второй раз он даст то же самое.
+            known = followUp;
+            command = result.Text;
+
             // Только что выполнили команду — и это её продолжение.
             // Разговор с ассистентом редко состоит из одной фразы: за «поставь
             // паузу» почти всегда идёт «а теперь громче». Требовать имя перед
             // каждой значит заставлять человека обращаться к программе вместо
             // того, чтобы ей пользоваться.
-            command = followUp;
             Log.Info($"продолжение без имени: «{command}»", "host");
         }
         else
@@ -888,7 +919,7 @@ public sealed class AppHost : IDisposable
             RecognitionMs = (int)result.Elapsed.TotalMilliseconds,
         };
 
-        var intent = CommandParser.Parse(command);
+        var intent = known ?? CommandParser.Parse(command);
         Log.Info($"команда: «{command}» -> {intent}", "host");
 
         // «Что ты умеешь» — вопрос, который задают первым. Ответить на него
@@ -1209,7 +1240,7 @@ public sealed class AppHost : IDisposable
     /// Ни поиска, ни разговора, ни догадок: разговор рядом с компьютером
     /// не должен превращаться в череду случайных действий.
     /// </summary>
-    private string? ContinuesWithoutName(string text)
+    private Intent? ContinuesWithoutName(string text)
     {
         if (_router is null) return null;
 
@@ -1251,7 +1282,7 @@ public sealed class AppHost : IDisposable
             if (_catalog.Resolve(intent.Argument, threshold) is null) return null;
         }
 
-        return text;
+        return intent;
     }
 
     /// <summary>
@@ -1342,14 +1373,33 @@ public sealed class AppHost : IDisposable
     /// Отдаёт фразу в разговор. Ответ произносится по кускам прямо во время
     /// чтения — сюда возвращается только то, вышло ли вообще.
     /// </summary>
+    /// <summary>
+    /// Идущий разговор. Отменяется, когда человек заговорил снова.
+    ///
+    /// Разговор ждётся в том же потоке, что и распознавание команд, — а значит,
+    /// пока он идёт, программа глуха ко всему остальному. Обычно это доли
+    /// секунды и незаметно. Но чужой сервер может не ответить вовсе,
+    /// и тогда без предела ожидания ассистент замолкал бы минутами, показывая
+    /// горящую кайму и не реагируя даже на «стоп».
+    /// </summary>
+    private CancellationTokenSource? _talkCancellation;
+
+    /// <summary>Сколько ждать ответа. Дольше человек всё равно не ждёт — он повторяет вопрос.</summary>
+    private static readonly TimeSpan TalkTimeout = TimeSpan.FromSeconds(25);
+
     private bool Talk(string question)
     {
         Log.Info($"в разговор: «{question}»", "host");
         _overlay.SetState(OverlayState.Thinking);
 
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+        cancellation.CancelAfter(TalkTimeout);
+
+        _talkCancellation = cancellation;
+
         try
         {
-            var answer = _brain.AskAsync(question, _learning?.Profile, _shutdown.Token)
+            var answer = _brain.AskAsync(question, _learning?.Profile, cancellation.Token)
                 .GetAwaiter().GetResult();
 
             if (string.IsNullOrWhiteSpace(answer))
@@ -1366,11 +1416,24 @@ public sealed class AppHost : IDisposable
 
             return true;
         }
+        catch (OperationCanceledException) when (!_shutdown.IsCancellationRequested)
+        {
+            // Либо ответа не дождались, либо человек заговорил снова.
+            // В обоих случаях молчать нельзя: снаружи это неотличимо от того,
+            // что программа зависла.
+            Log.Warn("разговор прерван: ответа не дождались", "host");
+            SayFailure("не дозвонилась");
+            return false;
+        }
         catch (Exception ex)
         {
             Log.Error("разговор сорвался", ex, "host");
             SayFailure("не получилось ответить");
             return false;
+        }
+        finally
+        {
+            _talkCancellation = null;
         }
     }
 

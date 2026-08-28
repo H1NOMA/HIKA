@@ -91,16 +91,29 @@ public sealed class UtteranceSegmenter
         _probeWindow = AudioFormat.MsToSamples(Math.Max(600, speech.ProbeWindowMs));
         _probeEnabled = speech.EarlyWakeProbe;
 
+        var rebuilt = false;
+
         var wantPreRoll = Math.Max(AudioFormat.FrameSamples, AudioFormat.MsToSamples(config.PreRollMs));
         if (wantPreRoll != _preRoll.Length)
         {
             _preRoll = new float[wantPreRoll];
             _preRollWrite = 0;
             _preRollFilled = 0;
+            rebuilt = true;
         }
 
         var wantUtterance = _maxUtterance + _preRoll.Length + AudioFormat.FrameSamples;
-        if (_utterance.Length < wantUtterance) _utterance = new float[wantUtterance];
+        if (_utterance.Length < wantUtterance)
+        {
+            _utterance = new float[wantUtterance];
+            rebuilt = true;
+        }
+    
+        // Буферы подменились прямо посреди произносимой фразы — накопленное
+        // в них больше не то, что человек говорил. Честно оборвать фразу
+        // лучше, чем отправить в распознавание кусок тишины и получить
+        // «услышала и ничего не сделала».
+        if (rebuilt) Reset();
     }
 
     public void Process(ReadOnlySpan<float> frame)

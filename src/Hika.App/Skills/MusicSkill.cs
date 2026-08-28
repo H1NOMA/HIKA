@@ -84,18 +84,30 @@ public sealed class MusicSkill
             Log.Warn($"музыкальное приложение «{behavior.MusicApp}» не найдено, ищу сама", "music");
         }
 
+        // Найденное запоминается: перебор тринадцати названий по всему каталогу
+        // повторялся на каждую команду, а ответ у него один и тот же —
+        // программы не появляются и не исчезают между двумя фразами.
+        if (_found is not null) return _found;
+
         foreach (var name in KnownPlayers)
         {
             var match = _catalog.Resolve(name, 0.72);
             if (match is not null)
             {
                 Log.Info($"музыку буду включать через {match.Entry.DisplayName}", "music");
-                return match.Entry;
+                return _found = match.Entry;
             }
         }
 
         return null;
     }
+
+    /// <summary>
+    /// Плеер, найденный в прошлый раз. Живёт до перезапуска: свежеустановленный
+    /// плеер появится после него, а ждать этого дольше, чем одной команды,
+    /// человеку не приходится — он его только что и поставил.
+    /// </summary>
+    private CatalogEntry? _found;
 
     private static void StartWhenReady(string appName)
     {

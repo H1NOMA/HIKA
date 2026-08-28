@@ -70,7 +70,18 @@ public sealed class ClaudeBrain : IDisposable
 
         try
         {
-            _client = new AnthropicClient { ApiKey = key };
+            // Пределы заданы явно, и это важнее, чем кажется. У клиента
+            // по умолчанию десять минут на попытку и две повторные попытки —
+            // то есть при зависшем ответе ассистент замолкает почти на полчаса,
+            // потому что разговор идёт в том же потоке, что и распознавание
+            // команд. Полминуты хватает любому нормальному ответу, а всё,
+            // что дольше, человеку уже не нужно: он давно повторил вопрос.
+            _client = new AnthropicClient
+            {
+                ApiKey = key,
+                Timeout = TimeSpan.FromSeconds(30),
+                MaxRetries = 1,
+            };
             Description = config.Model;
             Log.Info($"разговор готов: {config.Model}", "brain");
         }

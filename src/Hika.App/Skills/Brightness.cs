@@ -22,10 +22,34 @@ namespace Hika.Skills;
 /// </summary>
 public static class Brightness
 {
+    /// <summary>Каким путём этот компьютер слушается. Выясняется один раз.</summary>
+    private enum Path { Unknown, Wmi, Monitor, None }
+
+    /// <summary>
+    /// Запомненный рабочий путь.
+    ///
+    /// Каждая команда яркости раньше пробовала оба способа заново, причём
+    /// дважды: сначала чтобы прочитать текущий уровень, потом чтобы записать
+    /// новый. На внешнем мониторе это два полных круга по DDC/CI — открыть
+    /// хендлы, спросить, записать, закрыть, — и человек ждёт этого при каждом
+    /// «сделай ярче».
+    ///
+    /// Запоминается только путь, но не сам уровень: его меняют клавишами
+    /// на корпусе, кнопками монитора и автояркостью, и шаг от устаревшего
+    /// значения прыгал бы.
+    /// </summary>
+    private static Path _path = Path.Unknown;
+
     public static SkillResult Step(int delta)
     {
+        if (_path == Path.None) return Unavailable();
+
         var current = Read();
-        if (current is null) return Unavailable();
+        if (current is null)
+        {
+            _path = Path.None;
+            return Unavailable();
+        }
 
         return Set(Math.Clamp(current.Value + delta, 0, 100));
     }
@@ -34,13 +58,36 @@ public static class Brightness
     {
         percent = Math.Clamp(percent, 0, 100);
 
-        if (SetViaWmi(percent) || SetViaMonitor(percent))
+        // Известный путь пробуется первым и единственным. Неизвестный —
+        // оба подряд, но ровно один раз за всё время работы программы.
+        var ok = _path switch
+        {
+            Path.Wmi => SetViaWmi(percent),
+            Path.Monitor => SetViaMonitor(percent),
+            Path.None => false,
+            _ => Discover(percent),
+        };
+
+        if (ok)
         {
             Log.Info($"яркость {percent}%", "system");
             return SkillResult.Ok($"яркость {percent} процентов");
         }
 
+        // Известный путь вдруг отказал — монитор могли переключить.
+        // Забываем его и пробуем всё заново со следующего раза.
+        if (_path is Path.Wmi or Path.Monitor) _path = Path.Unknown;
+
         return Unavailable();
+    }
+
+    private static bool Discover(int percent)
+    {
+        if (SetViaWmi(percent)) { _path = Path.Wmi; Log.Info("яркость идёт через WMI", "system"); return true; }
+        if (SetViaMonitor(percent)) { _path = Path.Monitor; Log.Info("яркость идёт через DDC/CI", "system"); return true; }
+
+        _path = Path.None;
+        return false;
     }
 
     private static SkillResult Unavailable()

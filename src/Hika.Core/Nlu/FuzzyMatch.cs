@@ -20,9 +20,16 @@ public static class FuzzyMatch
         // Разница в длине — нижняя граница расстояния, дальше можно не считать.
         if (Math.Abs(a.Length - b.Length) > max) return max + 1;
 
-        var previous = new int[b.Length + 1];
-        var current = new int[b.Length + 1];
-        var beforePrevious = new int[b.Length + 1];
+        // Буферы переиспользуются. Сравнение слов — самое частое, что вообще
+        // делает эта программа: одна команда прогоняет его десятки тысяч раз
+        // по сотне шаблонов и всему каталогу программ, и три коротких массива
+        // на каждый вызов складываются в мегабайты мусора на пустом месте.
+        //
+        // Свои буферы у каждого потока: сравнение идёт и из рабочего потока,
+        // и из ранней проверки имени.
+        var previous = Buffer(ref _rowA, b.Length + 1);
+        var current = Buffer(ref _rowB, b.Length + 1);
+        var beforePrevious = Buffer(ref _rowC, b.Length + 1);
 
         for (int j = 0; j <= b.Length; j++) previous[j] = j;
 
@@ -53,6 +60,17 @@ public static class FuzzyMatch
         }
 
         return previous[b.Length];
+    }
+
+    [ThreadStatic] private static int[]? _rowA;
+    [ThreadStatic] private static int[]? _rowB;
+    [ThreadStatic] private static int[]? _rowC;
+
+    /// <summary>Буфер нужной длины. Растёт по мере надобности и больше не уменьшается.</summary>
+    private static int[] Buffer(ref int[]? slot, int size)
+    {
+        if (slot is null || slot.Length < size) slot = new int[Math.Max(size, 48)];
+        return slot;
     }
 
     /// <summary>Похожесть двух строк, 0..1.</summary>
