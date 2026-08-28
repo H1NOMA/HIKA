@@ -143,7 +143,18 @@ public sealed class ClaudeBrain : IDisposable
         }
         catch (OperationCanceledException)
         {
-            return null;
+            // Оборвали на середине — но то, что успело прозвучать, уже
+            // прозвучало. Сказать после этого «не дозвонилась» значит
+            // соврать человеку, который только что слушал ответ.
+            if (SpeechText.TakeSpeakable(pending, flush: true) is { } rest) Emit(rest);
+
+            var partial = full.ToString().Trim();
+            if (partial.Length == 0) return null;
+
+            Remember(question, partial);
+            Log.Warn($"ответ оборван на {partial.Length} знаках за {stopwatch.ElapsedMilliseconds} мс", "brain");
+
+            return partial;
         }
         catch (Exception ex)
         {

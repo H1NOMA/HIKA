@@ -1384,8 +1384,15 @@ public sealed class AppHost : IDisposable
     /// </summary>
     private CancellationTokenSource? _talkCancellation;
 
-    /// <summary>Сколько ждать ответа. Дольше человек всё равно не ждёт — он повторяет вопрос.</summary>
-    private static readonly TimeSpan TalkTimeout = TimeSpan.FromSeconds(25);
+    /// <summary>
+    /// Сколько ждать ответа целиком.
+    ///
+    /// Обрыв по этому сроку не теряет сказанного: ответ произносится кусками
+    /// по мере готовности, и то, что прозвучало, остаётся. Поэтому предел
+    /// стоит не там, где ответ ещё не успел прийти, а там, где ждать его уже
+    /// бессмысленно — человек к этому времени давно переспросил.
+    /// </summary>
+    private static readonly TimeSpan TalkTimeout = TimeSpan.FromSeconds(40);
 
     private bool Talk(string question)
     {
