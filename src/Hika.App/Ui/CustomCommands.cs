@@ -53,13 +53,26 @@ public sealed class CustomCommands : Panel
         Controls.Add(_add);
     }
 
-    /// <summary>Заполняет список из настроек.</summary>
+    /// <summary>
+    /// Заполняет список из настроек.
+    ///
+    /// Недописанные строки при этом переживают перезагрузку. Сохранить их
+    /// нельзя — команда без цели никуда не ведёт, — но и стереть нельзя:
+    /// человек вписал фразу, нажал «Применить» и увидел бы, как набранное
+    /// исчезает. Ровно то, из-за чего перестают доверять окну целиком.
+    /// </summary>
     public void Load(IEnumerable<CustomEntry>? entries)
     {
+        var unfinished = _rows
+            .Where(r => !r.Blank && r.Entry() is null)
+            .Select(r => r.Draft())
+            .ToList();
+
         foreach (var row in _rows) row.Detach(this);
         _rows.Clear();
 
         foreach (var entry in entries ?? Enumerable.Empty<CustomEntry>()) AddRow(entry);
+        foreach (var draft in unfinished) AddRow(draft);
 
         Place();
     }
@@ -91,7 +104,20 @@ public sealed class CustomCommands : Panel
     /// </summary>
     public void StartWith(string phrase)
     {
-        var row = AddRow(new CustomEntry { Phrases = new List<string> { phrase.Trim() } });
+        var text = phrase.Trim();
+
+        // Второй щелчок по той же фразе не должен заводить вторую такую же
+        // строку: человек нажал ещё раз потому, что не заметил результата,
+        // а не потому, что хочет две одинаковые команды.
+        var existing = _rows.FirstOrDefault(r => r.Mentions(text));
+
+        if (existing is not null)
+        {
+            try { existing.FocusTarget(); } catch { }
+            return;
+        }
+
+        var row = AddRow(new CustomEntry { Phrases = new List<string> { text } });
         Place();
 
         try { row.FocusTarget(); } catch { }
@@ -231,6 +257,24 @@ public sealed class CustomCommands : Panel
         {
             _target.Focus();
         }
+
+        /// <summary>Строка, в которой ничего не набрано.</summary>
+        public bool Blank => _phrases.Text.Trim().Length == 0 && _target.Text.Trim().Length == 0;
+
+        /// <summary>Набранное как есть, даже если этого мало для команды.</summary>
+        public CustomEntry Draft() => new()
+        {
+            Phrases = _phrases.Text
+                .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList(),
+            Target = _target.Text.Trim(),
+            Arguments = _original.Arguments ?? "",
+        };
+
+        /// <summary>Есть ли среди фраз ровно такая.</summary>
+        public bool Mentions(string phrase) => _phrases.Text
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(p => p.Equals(phrase, StringComparison.OrdinalIgnoreCase));
 
         /// <summary>Строка как запись настроек. Null — заполнено не до конца.</summary>
         public CustomEntry? Entry()
