@@ -1392,10 +1392,13 @@ public sealed class AppHost : IDisposable
         Log.Info($"в разговор: «{question}»", "host");
         _overlay.SetState(OverlayState.Thinking);
 
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         cancellation.CancelAfter(TalkTimeout);
 
-        _talkCancellation = cancellation;
+        // Публикуется под тем же замком, под которым отменяется, и уничтожается
+        // только после того, как перестанет быть виден потоку звука. Иначе
+        // отмена приходит либо в пустоту, либо по освобождённому объекту.
+        lock (_queueLock) _talkCancellation = cancellation;
 
         try
         {
@@ -1433,7 +1436,8 @@ public sealed class AppHost : IDisposable
         }
         finally
         {
-            _talkCancellation = null;
+            lock (_queueLock) _talkCancellation = null;
+            cancellation.Dispose();
         }
     }
 
