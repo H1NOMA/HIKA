@@ -35,6 +35,8 @@ public sealed class MicrophoneCapture : IDisposable
     private float _gain = 1.0f;
     private string _deviceFilter = "";
     private DateTime _lastRestart = DateTime.MinValue;
+    private int _failedRestarts;
+    private bool _lossReported;
 
     /// <summary>
     /// Кадр по 512 отсчётов (32 мс), 16 кГц моно.
@@ -327,7 +329,7 @@ public sealed class MicrophoneCapture : IDisposable
                 _enumerator = new MMDeviceEnumerator();
 
                 var device = ResolveDevice(_enumerator, _deviceFilter);
-                if (device is null) { Thread.Sleep(2000); return; }
+                if (device is null) { NoteFailedRestart("устройство не найдено"); Thread.Sleep(2000); return; }
 
                 ActiveDeviceName = device.FriendlyName;
                 _capture = new WasapiCapture(device) { ShareMode = AudioClientShareMode.Shared };
@@ -355,14 +357,43 @@ public sealed class MicrophoneCapture : IDisposable
                 _capture.StartRecording();
 
                 _restartRequested = false;
+
+                if (_lossReported)
+                {
+                    _lossReported = false;
+                    Recovered?.Invoke(ActiveDeviceName);
+                }
+
+                _failedRestarts = 0;
                 Log.Info($"микрофон снова на связи: «{ActiveDeviceName}»", "audio");
             }
             catch (Exception ex)
             {
-                Log.Warn($"переподключение не удалось: {ex.Message}", "audio");
+                NoteFailedRestart(ex.Message);
                 Thread.Sleep(2000);
             }
         }
+    }
+
+    /// <summary>Микрофон вернулся после того, как о потере уже сказали.</summary>
+    public event Action<string>? Recovered;
+
+    /// <summary>
+    /// Переподключиться не вышло.
+    ///
+    /// Один раз — обычное дело: устройство ещё не появилось в системе.
+    /// Но если не выходит подряд, значит его отобрали всерьёз, и молчать
+    /// об этом нельзя: программа выглядит работающей, значок пишет «слушает»,
+    /// а человек говорит в пустоту и не понимает, почему.
+    /// </summary>
+    private void NoteFailedRestart(string reason)
+    {
+        Log.Warn($"переподключение не удалось: {reason}", "audio");
+
+        if (_lossReported || ++_failedRestarts < 4) return;
+        _lossReported = true;
+
+        Failed?.Invoke(reason);
     }
 
     public void Stop()

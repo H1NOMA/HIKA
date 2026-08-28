@@ -476,7 +476,11 @@ public sealed class SettingsWindow : Form
             var done = advice.Apply(_store.Current);
             if (done.Length == 0) return;
 
-            _store.Save();
+            if (!_store.Save())
+            {
+                SetNotice("НЕ сохранено: файл настроек не записался");
+                return;
+            }
 
             _config = _store.Current;
             LoadFromConfig();
@@ -1319,11 +1323,20 @@ public sealed class SettingsWindow : Form
         Section("Обучение", () => ApplyLearning(c));
         Section("Поведение", () => ApplyBehavior(c));
 
-        _store.Save();
+        var saved = _store.Save();
         _config = c;
 
         try { _onApply(c); }
         catch (Exception ex) { Log.Error("применение настроек сорвалось", ex, "ui"); }
+
+        // Записать на диск могло не выйти — файл открыт другой программой,
+        // папка защищена, диск полон. Написать «Сохранено» в этом случае
+        // значит отпустить человека уверенным, что он настроил.
+        if (!saved)
+        {
+            SetNotice("НЕ сохранено: файл настроек не записался. Подробности в журнале.");
+            return;
+        }
 
         // Модель и звуковое устройство подхватываются только при старте:
         // менять их на живом пайплайне — значит рвать поток посреди фразы.

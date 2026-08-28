@@ -118,21 +118,33 @@ public static class PlayerKeys
             return null;
         }
 
-        if (WindowSwitcher.TryFocus(hint) is null)
+        var focused = WindowSwitcher.TryFocus(hint);
+
+        if (focused is null || !focused.Success)
         {
-            Log.Debug($"«{hint}» играет, но его окна не видно", "media");
+            Log.Debug($"«{hint}» играет, но поднять его окно не вышло", "media");
             return null;
         }
 
-        // Окну нужно мгновение, чтобы стать активным и начать принимать ввод.
-        Thread.Sleep(140);
+        // Окну нужно мгновение, чтобы начать принимать ввод.
+        Thread.Sleep(120);
         return hint;
     }
 
+    /// <summary>
+    /// Впереди плеер или браузер.
+    ///
+    /// Сравнение по началу имени, а не по вхождению куска: «obs» встречается
+    /// внутри «Obsidian», «media» — внутри доброго десятка программ, и клавиша
+    /// «f» уезжала бы в заметки вместо плеера.
+    /// </summary>
     private static bool IsPlayer(string process)
     {
         if (process.Length == 0) return false;
-        return Players.Any(p => process.Contains(p, StringComparison.OrdinalIgnoreCase));
+
+        return Players.Any(p =>
+            process.Equals(p, StringComparison.OrdinalIgnoreCase) ||
+            process.StartsWith(p, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string ProcessName(IntPtr window)

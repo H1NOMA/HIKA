@@ -37,7 +37,11 @@ public sealed class LearningEngine : IEntryPrior, IDisposable
     private readonly SpeechJournal _journal;
     private LearningConfig _config;
 
-    private readonly object _lock = new();
+    /// <summary>
+    /// Тот же замок, под которым профиль пишется на диск. Общий намеренно:
+    /// иначе запись застаёт словарь посреди изменения.
+    /// </summary>
+    private readonly object _lock;
 
     // Неудача ждёт объяснения. Если следом почти та же фраза сработает —
     // значит, человек сам показал, что имел в виду.
@@ -63,6 +67,7 @@ public sealed class LearningEngine : IEntryPrior, IDisposable
         _config = config;
         _store = store ?? new ProfileStore();
         _journal = journal ?? new SpeechJournal();
+        _lock = _store.Gate;
     }
 
     public void Start()

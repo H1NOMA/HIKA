@@ -56,6 +56,20 @@ public static class WindowSwitcher
             }
 
             var name = string.IsNullOrWhiteSpace(best.Process) ? best.Title : best.Process;
+
+            // Проверяем, что окно действительно вышло вперёд. SetForegroundWindow
+            // умеет вернуть «успех», не сменив активное окно вовсе — так Windows
+            // защищается от программ, ворующих фокус. Объявлять после этого
+            // «переключилась» значит соврать: человек смотрит в то же окно,
+            // что и раньше, и слышит, что всё получилось.
+            Thread.Sleep(60);
+
+            if (Win32.GetForegroundWindow() != best.Handle)
+            {
+                Log.Warn($"«{Shorten(best.Title)}» не вышло вперёд — Windows не отдала фокус", "system");
+                return SkillResult.Fail($"не смогла переключиться на {Shorten(name)}");
+            }
+
             Log.Info($"переключилась на «{Shorten(best.Title)}» ({best.Score:F2})", "system");
 
             return SkillResult.Ok($"переключилась на {Shorten(name)}");

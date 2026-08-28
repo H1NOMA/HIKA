@@ -108,23 +108,29 @@ internal sealed class HotkeyListener : NativeWindow, IDisposable
 
         if (wanted == _applied) return;
 
-        if (wanted.Listen != _applied.Listen)
-            _listenBound = Bind(IdListen, wanted.Listen, _listenBound, "слушать по клавише");
+        // Сначала снимаем обе, потом назначаем обе. Порознь ломается на самом
+        // очевидном действии: человек меняет две клавиши местами, и первая
+        // пытается занять сочетание, которое вторая ещё держит. Windows
+        // отказывает, и клавиша остаётся неназначенной навсегда — повторное
+        // «Применить» её уже не чинит, потому что запись в настройках
+        // не изменилась.
+        if (_listenBound) { Release(IdListen); _listenBound = false; }
+        if (_muteBound) { Release(IdMute); _muteBound = false; }
 
-        if (wanted.Mute != _applied.Mute)
-            _muteBound = Bind(IdMute, wanted.Mute, _muteBound, "выключение микрофона");
+        _listenBound = Bind(IdListen, wanted.Listen, "слушать по клавише");
+        _muteBound = Bind(IdMute, wanted.Mute, "выключение микрофона");
 
         _applied = wanted;
     }
 
-    private bool Bind(int id, string combination, bool wasBound, string what)
+    private void Release(int id)
     {
-        if (wasBound)
-        {
-            try { Win32.UnregisterHotKey(Handle, id); }
-            catch (Exception ex) { Log.Warn($"снять клавишу не вышло: {ex.Message}", "hotkey"); }
-        }
+        try { Win32.UnregisterHotKey(Handle, id); }
+        catch (Exception ex) { Log.Warn($"снять клавишу не вышло: {ex.Message}", "hotkey"); }
+    }
 
+    private bool Bind(int id, string combination, string what)
+    {
         if (string.IsNullOrWhiteSpace(combination)) return false;
 
         var hotkey = Hotkey.Parse(combination);

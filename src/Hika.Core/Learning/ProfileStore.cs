@@ -25,6 +25,18 @@ public sealed class ProfileStore : IDisposable
 
     private readonly string _path;
     private readonly object _lock = new();
+
+    /// <summary>
+    /// Замок, под которым живёт профиль.
+    ///
+    /// Отдаётся наружу намеренно. Профиль правит наблюдатель за речью,
+    /// а на диск его пишет здешний таймер — и пока у каждого был свой замок,
+    /// запись могла застать словарь посреди изменения. Сериализация в этот
+    /// момент срывается с ошибкой «коллекция изменилась», ошибка уходит
+    /// в журнал, а профиль не сохраняется вовсе — то есть обучение молча
+    /// перестаёт работать между запусками.
+    /// </summary>
+    public object Gate => _lock;
     private readonly System.Threading.Timer _flushTimer;
 
     private bool _dirty;

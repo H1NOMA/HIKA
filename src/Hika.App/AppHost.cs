@@ -181,6 +181,30 @@ public sealed class AppHost : IDisposable
         _microphone.FrameReady += OnAudioFrame;
         _microphone.Muted = config.Behavior.StartMuted;
 
+        // Микрофон могут отобрать: выдернуть из порта, отключить в системе,
+        // забрать в монопольный режим. Класс захвата умеет переподключаться
+        // сам и обычно справляется, но когда не справляется — об этом должен
+        // узнать человек. До сих пор не узнавал никто: значок продолжал
+        // писать «слушает», а программа была глуха навсегда.
+        _microphone.Failed += reason =>
+        {
+            Log.Error($"микрофон потерян: {reason}", "audio");
+
+            SetState(HostState.Failed);
+            StartupProblem?.Invoke(
+                "Микрофон пропал и не возвращается. Проверьте, подключён ли он, " +
+                "не отключён ли в параметрах звука Windows и не занят ли другой программой.\n\n" +
+                "Как только он вернётся, я снова начну слушать сама.");
+        };
+
+        _microphone.Recovered += name =>
+        {
+            Log.Info($"микрофон вернулся: {name}", "audio");
+
+            SetState(HostState.Idle);
+            StartupProblem?.Invoke($"Микрофон «{name}» вернулся, слушаю дальше.");
+        };
+
         // Голос и разговор — тоже в фоне: перечисление голосов и проверка ключа
         // упираются в систему и в сеть, а до трея дело должно дойти сразу.
         _voice.SpeakingChanged += OnSpeakingChanged;
@@ -1006,6 +1030,12 @@ public sealed class AppHost : IDisposable
             journal.Intent = "не разобрано";
             Record(journal, command);
             Note(result.Text, "не разобрано", "", HeardOutcome.NotUnderstood, match.Score, stopwatch);
+
+            // Неудачная команда говорит об этом вслух, а неразобранная молчала —
+            // хотя человек, не глядящий на экран, из красной вспышки не узнаёт
+            // ничего и повторяет ту же формулировку.
+            SayFailure("не поняла");
+
             Finish(false, stopwatch);
             return;
         }
@@ -1214,6 +1244,7 @@ public sealed class AppHost : IDisposable
 
     private SpeedSample _pending;
     private bool _pendingValid;
+    private int _speedSamples;
 
     /// <summary>Запоминает услышанную фразу для раздела «Что происходит».</summary>
     private void Note(string text, string intent, string result, HeardOutcome outcome,
@@ -1244,7 +1275,11 @@ public sealed class AppHost : IDisposable
         // Раз в десяток команд итог уходит и в журнал. Человек журнал
         // не читает — но если он его однажды пришлёт, разбираться в скорости
         // по нему станет можно, не прося ничего запускать.
-        if (_speed.Count % 10 != 0) return;
+        //
+        // Считаем своим счётчиком, а не размером очереди: очередь помнит
+        // последние двадцать четыре команды и дальше не растёт, так что
+        // по ней строка попадала в журнал ровно дважды за весь запуск.
+        if (++_speedSamples % 10 != 0) return;
 
         if (_speed.Summary() is { } summary)
         {

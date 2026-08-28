@@ -313,7 +313,6 @@ public sealed class HeardList : Control
                  | ControlStyles.OptimizedDoubleBuffer, true);
 
         _source = source;
-        Height = RowHeight * 8;
         BackColor = Theme.Panel;
 
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
@@ -325,13 +324,22 @@ public sealed class HeardList : Control
             if (next.Count == _items.Count && (next.Count == 0 || ReferenceEquals(next[0], _items[0]))) return;
 
             _items = next;
-            Height = Math.Max(RowHeight, RowHeight * Math.Max(1, next.Count));
+            Height = HeightFor(next.Count);
             Invalidate();
         };
         _timer.Start();
 
         _items = Read();
+        Height = HeightFor(_items.Count);
     }
+
+    /// <summary>
+    /// Высота ровно под то, что есть.
+    ///
+    /// Иначе список рисует больше строк, чем помещается в его собственную
+    /// высоту, и последние молча уходят под нижний край.
+    /// </summary>
+    private static int HeightFor(int count) => RowHeight * Math.Max(1, count);
 
     private IReadOnlyList<Heard> Read()
     {

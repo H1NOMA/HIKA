@@ -33,6 +33,9 @@ public sealed class ConfigStore : IDisposable
     /// внахлёст могут оставить человека вовсе без каймы до перезапуска.
     /// </summary>
     private string _lastWritten = "";
+
+    /// <summary>Файл уже читался хотя бы раз — значит, программа работает.</summary>
+    private bool _loaded;
     private DateTime _lastReload = DateTime.MinValue;
     private readonly object _lock = new();
 
@@ -84,18 +87,32 @@ public sealed class ConfigStore : IDisposable
             }
             catch (Exception ex)
             {
-                // Битый JSON не должен мешать приложению запуститься: откатываемся к настройкам
-                // по умолчанию, а испорченный файл сохраняем рядом, чтобы человек мог разобраться.
-                Log.Error("не удалось прочитать настройки, используются значения по умолчанию", ex, "config");
                 TryBackupBroken();
+
+                // Сбрасывать на умолчания можно только на первом чтении.
+                // Дальше это уже работающая программа: файл могли поймать
+                // недописанным — редактор пишет его не мгновенно, — и молча
+                // обнулить из-за этого всё, что человек настраивал, значит
+                // сделать хуже, чем ничего. Прежние настройки в такой момент
+                // заведомо вернее прочитанного.
+                if (_loaded)
+                {
+                    Log.Error("настройки перечитать не вышло — остаюсь на прежних", ex, "config");
+                    return Current;
+                }
+
+                Log.Error("не удалось прочитать настройки, используются значения по умолчанию", ex, "config");
                 Current = new HikaConfig();
             }
+
+            _loaded = true;
 
             return Current;
         }
     }
 
-    public void Save()
+    /// <summary>Сохраняет. Возвращает false, если записать не вышло.</summary>
+    public bool Save()
     {
         lock (_lock)
         {
@@ -110,10 +127,15 @@ public sealed class ConfigStore : IDisposable
                 File.Move(tmp, _path, overwrite: true);
 
                 _lastWritten = json;
+                return true;
             }
             catch (Exception ex)
             {
+                // Молчать здесь нельзя: окно настроек до сих пор писало
+                // «Сохранено» независимо от того, легло ли что-нибудь на диск,
+                // и человек уходил уверенный, что настроил.
                 Log.Error("не удалось сохранить настройки", ex, "config");
+                return false;
             }
         }
     }

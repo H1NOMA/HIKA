@@ -212,6 +212,12 @@ public static class Brightness
         public string Description;
     }
 
+    // [Out] здесь обязателен, а не украшение. Структура PHYSICAL_MONITOR
+    // содержит строку фиксированной длины, поэтому маршалер считает массив
+    // «неблиттируемым» и по умолчанию копирует его только В нативный код.
+    // Заполненные системой описатели монитора обратно не возвращались вовсе,
+    // и яркость внешнего монитора не работала никогда — при том, что все
+    // вызовы отвечали «успех».
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hWnd, int flags);
 
@@ -221,7 +227,8 @@ public static class Brightness
 
     [DllImport("dxva2.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr monitor, uint count, PHYSICAL_MONITOR[] monitors);
+    private static extern bool GetPhysicalMonitorsFromHMONITOR(
+        IntPtr monitor, uint count, [Out] PHYSICAL_MONITOR[] monitors);
 
     [DllImport("dxva2.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
