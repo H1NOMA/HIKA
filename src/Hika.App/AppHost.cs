@@ -109,6 +109,17 @@ public sealed class AppHost : IDisposable
     /// <summary>Последние услышанные фразы и что с ними стало.</summary>
     public RecentCommands Recent => _recent;
 
+    /// <summary>
+    /// Что бы я сделала с этой фразой, если бы её услышала.
+    ///
+    /// Ничего не выполняет: разбор и каталог, больше ничего. Нужно окну
+    /// настроек, где человек проверяет свои команды, не запуская их —
+    /// и разбирает те фразы, которые распознаватель исковеркал и произнести
+    /// заново точно так же не выйдет.
+    /// </summary>
+    public ProbeResult Explain(string phrase)
+        => CommandProbe.Explain(phrase, _wakeMatcher, _catalog, _configStore.Current);
+
     /// <summary>Текущая громкость голоса, 0..1 — для полоски уровня в настройках.</summary>
     public double CurrentLevel => _microphone.Muted ? 0 : _levelMeter.Normalized;
 
@@ -1110,7 +1121,10 @@ public sealed class AppHost : IDisposable
 
         Record(journal, command);
 
-        Note(result.Text, intent.ToString(), outcome.Description,
+        // По-русски, а не именем перечисления: этот список человек читает
+        // сам, и «MediaSeekForwardFar» в нём — сообщение о том, что здесь
+        // не для него.
+        Note(result.Text, IntentNames.Describe(intent), outcome.Description,
             outcome.Success ? HeardOutcome.Done : HeardOutcome.Failed, match.Score, stopwatch);
 
         if (!outcome.Success) SayFailure(outcome.Description);

@@ -326,6 +326,9 @@ public sealed class TextField : Control
 
     public event EventHandler? TextEdited;
 
+    /// <summary>Нажали Enter внутри поля.</summary>
+    public event EventHandler? Submitted;
+
     [AllowNull]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public override string Text
@@ -360,6 +363,20 @@ public sealed class TextField : Control
         _box.GotFocus += (_, _) => { _focused = true; Invalidate(); };
         _box.LostFocus += (_, _) => { _focused = false; Invalidate(); };
         _box.TextChanged += (_, _) => TextEdited?.Invoke(this, EventArgs.Empty);
+
+        // Enter в поле — то же, что нажать кнопку рядом. Поле, в котором
+        // что-то набирают ради одного действия, обязано отзываться на Enter:
+        // человек нажмёт его в любом случае, и если ничего не произойдёт,
+        // он решит, что не сработало вообще ничего.
+        _box.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+
+            e.SuppressKeyPress = true;
+            e.Handled = true;
+
+            Submitted?.Invoke(this, EventArgs.Empty);
+        };
 
         Controls.Add(_box);
     }

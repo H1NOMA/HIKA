@@ -5,6 +5,7 @@ using Hika.Audio;
 using Hika.Config;
 using Hika.Diagnostics;
 using Hika.Interop;
+using Hika.Nlu;
 using Hika.Startup;
 
 namespace Hika.Ui;
@@ -523,6 +524,21 @@ public sealed class SettingsWindow : Form
         // Таймер — не элемент управления, и сам он не умрёт вместе с окном.
         Disposed += (_, _) => { try { refresh.Stop(); refresh.Dispose(); } catch { } };
 
+        _probeField = new TextField { Placeholder = "хика, открой ютуб" };
+        _probeAnswer = new Label
+        {
+            AutoSize = false,
+            Height = 40,
+            ForeColor = Theme.TextFaint,
+            Font = Theme.Small,
+            BackColor = Theme.Panel,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var probeButton = new FlatButton("Проверить", primary: true) { Width = 130, Height = 34 };
+        probeButton.Click += (_, _) => RunProbe();
+        _probeField.Submitted += (_, _) => RunProbe();
+
         return Stack(
             new SectionTitle("Сколько вы ждёте",
                 "Программа замеряет саму себя. Числа появляются по мере того, как вы ей пользуетесь, " +
@@ -533,7 +549,40 @@ public sealed class SettingsWindow : Form
                 "Последние фразы и что с каждой стало. Сюда стоит смотреть, когда открылось не то: " +
                 "видно, расслышала ли я слово, разобрала ли команду и нашла ли программу."),
             _heardVerdict,
-            list);
+            list,
+            new SectionTitle("Что будет, если сказать",
+                "Разбирает фразу, ничего не выполняя. Полезно, когда добавили свою команду " +
+                "и хотите убедиться, что она не спутается с чужой, — и когда сказанное " +
+                "не воспроизвести: строку из списка выше можно скопировать сюда как есть."),
+            new SettingRow("Фраза", "", _probeField),
+            new SettingRow("", "", probeButton, 130),
+            _probeAnswer);
+    }
+
+    private TextField _probeField = null!;
+    private Label _probeAnswer = null!;
+
+    private void RunProbe()
+    {
+        if (_host is null)
+        {
+            _probeAnswer.Text = "Ещё не запустилась — подождите пару секунд.";
+            return;
+        }
+
+        try
+        {
+            var result = _host.Explain(_probeField.Text);
+
+            _probeAnswer.ForeColor = result.Intent.Kind == IntentKind.None ? Theme.Warn : Theme.Text;
+            _probeAnswer.Text = result.Verdict;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("проверка фразы не вышла", ex, "ui");
+            _probeAnswer.ForeColor = Theme.Warn;
+            _probeAnswer.Text = "Не вышло разобрать — подробности в журнале.";
+        }
     }
 
     /// <summary>
