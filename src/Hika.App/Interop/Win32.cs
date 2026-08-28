@@ -366,8 +366,16 @@ internal static class Win32
 
     // ---- Вспомогательное -------------------------------------------------
 
-    /// <summary>Нажать и отпустить клавишу.</summary>
-    internal static void TapKey(ushort vk)
+    /// <summary>
+    /// Нажать и отпустить клавишу. Возвращает false, если ввод не дошёл.
+    ///
+    /// Проверять это обязательно. SendInput не бросает исключений: он молча
+    /// возвращает число принятых событий, и когда впереди окно с правами
+    /// администратора, принято будет ноль. Без проверки любая команда
+    /// клавиатурой объявляется удавшейся всегда — а человек видит, что
+    /// ничего не произошло, и ему говорят «готово».
+    /// </summary>
+    internal static bool TapKey(ushort vk)
     {
         var inputs = new[]
         {
@@ -375,11 +383,27 @@ internal static class Win32
             new INPUT { Type = INPUT_KEYBOARD, Union = new INPUTUNION { Keyboard = new KEYBDINPUT { Vk = vk, Flags = KEYEVENTF_KEYUP } } },
         };
 
-        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        return Sent(inputs);
+    }
+
+    /// <summary>Отправляет ввод и говорит, приняла ли его система целиком.</summary>
+    private static bool Sent(INPUT[] inputs)
+    {
+        if (inputs.Length == 0) return true;
+
+        var accepted = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        if (accepted == inputs.Length) return true;
+
+        // Ноль почти всегда означает одно: впереди окно с правами выше наших,
+        // и Windows нам туда писать не даёт.
+        Hika.Diagnostics.Log.Debug(
+            $"ввод принят частично: {accepted} из {inputs.Length}, код {Marshal.GetLastWin32Error()}", "system");
+
+        return false;
     }
 
     /// <summary>Кнопка мыши: нажатие и отпускание там, где курсор сейчас.</summary>
-    internal static void TapMouse(uint down, uint up)
+    internal static bool TapMouse(uint down, uint up)
     {
         var inputs = new[]
         {
@@ -387,7 +411,7 @@ internal static class Win32
             new INPUT { Type = INPUT_MOUSE, Union = new INPUTUNION { Mouse = new MOUSEINPUT { Flags = up } } },
         };
 
-        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        return Sent(inputs);
     }
 
     /// <summary>
@@ -396,7 +420,7 @@ internal static class Win32
     /// Именно символами, а не клавишами: раскладка клавиатуры при этом
     /// не имеет значения, и русский текст наберётся даже при английской.
     /// </summary>
-    internal static void TypeText(string text)
+    internal static bool TypeText(string text)
     {
         var inputs = new List<INPUT>(text.Length * 2);
 
@@ -417,14 +441,13 @@ internal static class Win32
             });
         }
 
-        if (inputs.Count == 0) return;
+        if (inputs.Count == 0) return true;
 
-        var array = inputs.ToArray();
-        SendInput((uint)array.Length, array, Marshal.SizeOf<INPUT>());
+        return Sent(inputs.ToArray());
     }
 
     /// <summary>Нажать сочетание: модификаторы удерживаются, пока нажимается основная клавиша.</summary>
-    internal static void TapCombo(params ushort[] keys)
+    internal static bool TapCombo(params ushort[] keys)
     {
         var inputs = new INPUT[keys.Length * 2];
 
@@ -449,6 +472,6 @@ internal static class Win32
             };
         }
 
-        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        return Sent(inputs);
     }
 }

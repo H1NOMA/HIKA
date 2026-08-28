@@ -526,6 +526,8 @@ public sealed class AppHost : IDisposable
         _segmenter?.Reset();
         _levelMeter.Reset();
 
+        if (_dictating) { _overlay.SetState(OverlayState.Listening); return; }
+
         if (State != HostState.Armed) _overlay.SetState(OverlayState.Hidden);
     }
 
@@ -1059,7 +1061,16 @@ public sealed class AppHost : IDisposable
 
     // ---- Диктовка ------------------------------------------------------------
 
-    private bool _dictating;
+    /// <summary>
+    /// Идёт диктовка.
+    ///
+    /// volatile не для красоты: признак ставится из потока интерфейса
+    /// (клавиша, выключение микрофона), снимается из потока звука (тишина)
+    /// и читается рабочим потоком прямо перед тем, как набрать текст
+    /// в чужое окно. Прочитать здесь устаревшее значение — значит напечатать
+    /// туда, откуда диктовку уже остановили.
+    /// </summary>
+    private volatile bool _dictating;
     private bool _dictationNeedsSpace;
     private bool _dictationNewSentence = true;
     private DateTime _dictationUntil = DateTime.MinValue;
@@ -1089,6 +1100,11 @@ public sealed class AppHost : IDisposable
 
     private void ResumeDictation()
     {
+        // Диктовку успели остановить, пока шло распознавание, — оживлять её
+        // обратно нельзя. Иначе кайма горит и значок пишет «диктую» при
+        // выключенном микрофоне, и погасить это уже некому.
+        if (!_dictating) return;
+
         _dictationUntil = DateTime.UtcNow.Add(DictationIdle);
 
         SetState(HostState.Dictating);
@@ -1140,6 +1156,15 @@ public sealed class AppHost : IDisposable
             return;
         }
 
+        // Между началом распознавания и этим местом прошли сотни миллисекунд,
+        // а то и секунды. За это время диктовку могли остановить клавишей
+        // или выключением микрофона — и тогда набирать уже нечего и некуда.
+        if (!_dictating)
+        {
+            Log.Info("диктовку остановили, пока шло распознавание — не набираю", "host");
+            return;
+        }
+
         var typed = Dictation.Punctuate(text, _dictationNewSentence);
 
         if (typed.Length == 0)
@@ -1149,14 +1174,21 @@ public sealed class AppHost : IDisposable
         }
 
         // Пробел между фразами, но не после переноса строки и не в начале.
-        var payload = _dictationNeedsSpace ? " " + typed : typed;
+        // И не перед переносом: «новая строка», сказанная отдельной фразой,
+        // даёт один символ перевода, а с приклеенным пробелом получалась
+        // строка из пробелов — то есть «нечего печатать» и ложный отказ
+        // с рассказом про права администратора.
+        var payload = _dictationNeedsSpace && !typed.StartsWith('\n') ? " " + typed : typed;
 
         var result = SystemActions.TypeText(payload);
 
         _dictationNeedsSpace = !typed.EndsWith('\n');
         _dictationNewSentence = Dictation.EndsSentence(typed);
 
-        Log.Info($"надиктовано: «{typed}»", "host");
+        // Продиктованное — это чужой текст, и на диск он ложится только
+        // с разрешения: та же настройка, что и для распознанных фраз.
+        if (_configStore.Current.Behavior.LogTranscripts) Log.Info($"надиктовано: «{typed}»", "host");
+        else Log.Info($"надиктовано {typed.Length} знаков", "host");
         Note(text, "диктовка", typed, result.Success ? HeardOutcome.Done : HeardOutcome.Failed, 0, stopwatch);
 
         if (!result.Success)
@@ -1686,8 +1718,23 @@ public sealed class AppHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// Вернуться в исходное после того, как с фразой ничего не вышло.
+    ///
+    /// Про диктовку здесь спрашивается не зря. Пустая фраза, отброшенная
+    /// выдумка модели, неготовая модель — всё это досрочные выходы, и каждый
+    /// из них гасил кайму и переводил программу в «слушаю», не остановив
+    /// саму диктовку. Снаружи получалось худшее из возможного: признаков
+    /// диктовки нет, а следующая фраза всё равно уезжает в окно текстом.
+    /// </summary>
     private void ResetToIdle()
     {
+        if (_dictating)
+        {
+            ResumeDictation();
+            return;
+        }
+
         SetState(HostState.Idle);
         _overlay.SetState(OverlayState.Hidden);
     }

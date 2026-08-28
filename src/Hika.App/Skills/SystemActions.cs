@@ -125,7 +125,8 @@ public static class SystemActions
     {
         try
         {
-            Win32.TapCombo(keys);
+            if (!Win32.TapCombo(keys)) return Blocked(description);
+
             Log.Info(description, "system");
             return SkillResult.Ok(description);
         }
@@ -204,6 +205,18 @@ public static class SystemActions
         return SkillResult.Ok("двойной клик");
     }
 
+    /// <summary>
+    /// Ввод не приняли. Почти всегда это окно с правами выше наших: Windows
+    /// не даёт обычной программе писать в окно, запущенное от администратора.
+    /// Сказать об этом прямо лучше, чем объявить успех и оставить человека
+    /// смотреть, как ничего не произошло.
+    /// </summary>
+    private static SkillResult Blocked(string what)
+    {
+        Log.Warn($"{what}: ввод не принят — вероятно, впереди окно с правами администратора", "system");
+        return SkillResult.Fail("это окно меня не слушает — похоже, оно запущено от администратора");
+    }
+
     /// <summary>Набрать текст в активное окно.</summary>
     public static SkillResult TypeText(string text)
     {
@@ -211,7 +224,8 @@ public static class SystemActions
 
         try
         {
-            Win32.TypeText(text);
+            if (!Win32.TypeText(text)) return Blocked("набор текста");
+
             Log.Info($"напечатано {text.Length} знаков", "system");
             return SkillResult.Ok("напечатано");
         }

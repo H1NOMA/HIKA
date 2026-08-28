@@ -34,9 +34,24 @@ public class DictationTests
     [InlineData("хватит печатать")]
     [InlineData("стоп диктовка")]
     [InlineData("прекрати диктовку")]
+    [InlineData("останови диктовку")]
     public void ДиктовкаЗаканчиваетсяРазнымиСловами(string text)
     {
         Assert.Equal(IntentKind.DictationStop, CommandParser.Parse(text).Kind);
+    }
+
+    [Theory]
+    // Ровно тот же список — но глазами самой диктовки. Пока эти два списка
+    // жили порознь, они разъехались: окно настроек обещало «закончи диктовку»,
+    // тест это закреплял, а диктовка печатала фразу в текст.
+    [InlineData("закончи диктовку")]
+    [InlineData("хватит печатать")]
+    [InlineData("стоп диктовка")]
+    [InlineData("прекрати диктовку")]
+    [InlineData("останови диктовку")]
+    public void ТемиЖеСловамиДиктовкаИЗаканчивается(string text)
+    {
+        Assert.True(Dictation.IsStop(text), $"«{text}» напечаталось бы вместо остановки");
     }
 
     [Theory]
