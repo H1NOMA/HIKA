@@ -775,17 +775,24 @@ public static class CommandParser
 
         foreach (var pattern in CommandCatalog.All)
         {
-            var score = pattern.Match(spoken, Ignorable);
+            var score = pattern.Match(spoken, out var matched, Ignorable);
             var loose = false;
 
             // Привычный порядок не сложился — пробуем без него, но строже.
             if (score < pattern.Threshold)
             {
-                score = pattern.MatchUnordered(spoken, Ignorable);
+                score = pattern.MatchUnordered(spoken, out matched, Ignorable);
                 loose = true;
 
                 if (score < pattern.Threshold + UnorderedPenalty) continue;
             }
+
+            // Команда, опознанная по одному-единственному слову, обязана
+            // совпасть точнее остальных: там нет второго слова, которое
+            // подтвердило бы догадку. Без этого «твиттер» становился
+            // театральным режимом, «скайп» — следующим треком, а «зум» —
+            // увеличением масштаба вместо программы Zoom.
+            if (matched <= 1 && score < SingleWordThreshold) continue;
 
             if (score > bestScore)
             {

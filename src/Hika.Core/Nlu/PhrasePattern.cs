@@ -98,6 +98,27 @@ public sealed class PhrasePattern
     private const double SlotFloor = 0.35;
 
     /// <summary>
+    /// Насколько обязательный слот должен совпасть сам по себе.
+    ///
+    /// Оценка шаблона — среднее по слотам, и без этого правила точно
+    /// совпавший глагол вытягивает совсем не тот предмет. Так «включи
+    /// мозиллу» разбиралось как «включи музыку», «открой переводчик» —
+    /// как «открой проводник», «включи заметки» — как «замедли»: единица
+    /// за глагол и семь десятых за предмет дают в среднем достаточно,
+    /// хотя предмет — другое слово.
+    ///
+    /// Требование ровно одно и берётся у самой команды: слово, на котором
+    /// она держится, обязано быть похоже не меньше, чем требует её порог.
+    /// Это не отдельное число, которое пришлось бы подбирать, а то же самое,
+    /// которым команда уже описана: где ошибка дешёвая, порог мягче, и слову
+    /// прощается больше.
+    ///
+    /// Необязательных слотов правило не касается: они на то и необязательные,
+    /// что могут не совпасть вовсе.
+    /// </summary>
+    private double RequiredFloor => Threshold;
+
+    /// <summary>
     /// Насколько фраза похожа на этот шаблон, 0..1. Ноль — не подходит вовсе.
     ///
     /// Два правила определяют здесь всё.
@@ -117,7 +138,17 @@ public sealed class PhrasePattern
     /// и вежливость.
     /// </param>
     public double Match(string[][] spokenKeys, Func<int, bool>? ignorable = null)
+        => Match(spokenKeys, out _, ignorable);
+
+    /// <param name="matched">
+    /// Сколько слов легло в слоты. Нужно вызывающему: команда, опознанная
+    /// по одному-единственному слову, обязана совпасть точнее — иначе
+    /// «твиттер» становится театральным режимом, а «скайп» — следующим треком.
+    /// </param>
+    public double Match(string[][] spokenKeys, out int matched, Func<int, bool>? ignorable = null)
     {
+        matched = 0;
+
         var n = spokenKeys.Length;
         var m = Slots.Count;
 
@@ -168,7 +199,7 @@ public sealed class PhrasePattern
                 if (i >= n) continue;
 
                 var similarity = slot.Similarity(spokenKeys[i]);
-                if (similarity <= SlotFloor) continue;
+                if (similarity <= (slot.Optional ? SlotFloor : RequiredFloor)) continue;
 
                 Relax(i + 1, j + 1, sum[i, j] + similarity, used[i, j] + 1);
             }
@@ -177,7 +208,10 @@ public sealed class PhrasePattern
         var total = sum[n, m];
         var count = used[n, m];
 
-        return double.IsNegativeInfinity(total) || count == 0 ? 0 : total / count;
+        if (double.IsNegativeInfinity(total) || count == 0) return 0;
+
+        matched = count;
+        return total / count;
     }
 
     /// <summary>
@@ -192,7 +226,12 @@ public sealed class PhrasePattern
     /// которую человек произнёс в привычном порядке.
     /// </summary>
     public double MatchUnordered(string[][] spokenKeys, Func<int, bool>? ignorable = null)
+        => MatchUnordered(spokenKeys, out _, ignorable);
+
+    public double MatchUnordered(string[][] spokenKeys, out int matched, Func<int, bool>? ignorable = null)
     {
+        matched = 0;
+
         var n = spokenKeys.Length;
         if (n == 0) return 0;
 
@@ -205,7 +244,7 @@ public sealed class PhrasePattern
         foreach (var slot in Slots.Where(s => !s.Optional).Concat(Slots.Where(s => s.Optional)))
         {
             var bestIndex = -1;
-            double bestScore = SlotFloor;
+            double bestScore = slot.Optional ? SlotFloor : RequiredFloor;
 
             for (int i = 0; i < n; i++)
             {
@@ -235,6 +274,9 @@ public sealed class PhrasePattern
             return 0;
         }
 
-        return count == 0 ? 0 : sum / count;
+        if (count == 0) return 0;
+
+        matched = count;
+        return sum / count;
     }
 }
