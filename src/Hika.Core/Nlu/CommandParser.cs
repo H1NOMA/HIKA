@@ -368,6 +368,12 @@ public static class CommandParser
             // сразу — в активное окно уезжает не то.
             if (DictationTails.Any(tail => rest.Length == tail.Length && StartsWith(rest, tail))) continue;
 
+            // «Напечатай документ» по-русски почти всегда значит «распечатай».
+            // Тот же приём исключений, что и строкой выше: список короткий
+            // и закрытый, угадывать тут нечего, а ошибка видна сразу —
+            // в активное окно вбивается слово «документ».
+            if (rest.Length == 1 && PrintTargets.Contains(rest[0])) continue;
+
             var typed = string.Join(' ', rest).Trim();
             if (typed.Length == 0) continue;
 
@@ -540,6 +546,26 @@ public static class CommandParser
         "отмотай", "отмотать", "отматывай", "мотай", "пролистай",
     };
 
+    /// <summary>
+    /// Глаголы, которые меняют громкость шагом, а не ставят её числом.
+    ///
+    /// «Прибавь звук на десять» — это «громче», а не «поставь десять
+    /// процентов». Без этого различия просьба сделать погромче выкручивала
+    /// громкость вниз до десяти процентов, то есть ровно наоборот.
+    /// </summary>
+    private static readonly HashSet<string> VolumeStepWords = new(StringComparer.Ordinal)
+    {
+        "прибавь", "убавь", "увеличь", "уменьши", "добавь", "снизь", "подними",
+        "громче", "тише", "погромче", "потише", "прибавить", "убавить",
+    };
+
+    /// <summary>Слова, выдающие время суток: их программа отсчитывать не умеет.</summary>
+    private static readonly HashSet<string> TimeOfDayWords = new(StringComparer.Ordinal)
+    {
+        "утра", "утром", "вечера", "вечером", "ночи", "ночью", "дня", "днём", "днем",
+        "полудня", "полуночи", "am", "pm",
+    };
+
     /// <summary>Слова, по которым узнаётся просьба напомнить через время.</summary>
     private static readonly HashSet<string> TimerWords = new(StringComparer.Ordinal)
     {
@@ -560,6 +586,13 @@ public static class CommandParser
         new[] { "напечатай" }, new[] { "печатай" }, new[] { "набери" },
         new[] { "введи" }, new[] { "вбей" }, new[] { "напечатать" },
         new[] { "type" },
+    };
+
+    /// <summary>Что после «напечатай» означает «распечатай», а не набор текста.</summary>
+    private static readonly HashSet<string> PrintTargets = new(StringComparer.Ordinal)
+    {
+        "документ", "документы", "страницу", "страница", "страницы",
+        "файл", "это", "лист", "чек",
     };
 
     /// <summary>
@@ -625,6 +658,20 @@ public static class CommandParser
         // Громкость: нужны и слово про громкость, и число.
         if (tokens.Any(VolumeWords.Contains))
         {
+            // «Прибавь звук на десять» — это шаг, а не установка на десять
+            // процентов. Число здесь уточняет, насколько, а не докуда;
+            // выкрутить громкость вниз в ответ на просьбу сделать погромче —
+            // ровно противоположное сказанному.
+            var step = tokens.FirstOrDefault(VolumeStepWords.Contains);
+
+            if (step is not null)
+            {
+                var down = step is "убавь" or "уменьши" or "снизь" or "тише" or "потише" or "убавить";
+                Log.Debug($"громкость шагом {(down ? "вниз" : "вверх")}", "nlu");
+
+                return new Intent(down ? IntentKind.VolumeDown : IntentKind.VolumeUp);
+            }
+
             var value = Numbers.First(tokens);
             if (value is >= 0 and <= 100)
             {
@@ -662,6 +709,16 @@ public static class CommandParser
         // Таймер: нужны и слово про напоминание, и промежуток.
         if (tokens.Any(TimerWords.Contains))
         {
+            // «Поставь будильник на семь утра» — это время суток, а такого
+            // программа не умеет вовсе. Молча завести таймер на семь минут
+            // хуже, чем не сделать ничего: человек ляжет спать, а разбудит
+            // его через семь минут.
+            if (tokens.Any(TimeOfDayWords.Contains))
+            {
+                Log.Info("просят будильник на время суток — этого я не умею", "nlu");
+                return Intent.None;
+            }
+
             var duration = Numbers.Duration(tokens);
             if (duration is { TotalSeconds: >= 5 and <= 24 * 3600 })
             {
